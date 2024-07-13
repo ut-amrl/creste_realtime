@@ -1,0 +1,187 @@
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/opencv.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2_ros/transform_broadcaster.h>
+#include <boost/filesystem.hpp>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <sensor_msgs/msg/camera_info.hpp>
+
+/**
+Example usage:
+./build/publisher_node /images/5 /point_clouds/5 0 10
+**/
+
+namespace fs = boost::filesystem;
+
+namespace LSMap {
+class DataPublisher : public rclcpp::Node {
+public:
+    DataPublisher(const std::string& image_dir, const std::string& pointcloud_dir, int start_frame, double rate)
+    : Node("data_publisher"), image_dir_(image_dir), pointcloud_dir_(pointcloud_dir), start_frame_(start_frame), rate_(rate), frame_count_(start_frame) {
+        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("stereo/left", 10);
+        pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("ouster/points", 10);
+        camera_info_publisher_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 10);
+        tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
+
+        // Initialize camera intrinsics (example values, adjust accordingly)
+        camera_info_.header.frame_id = "stereo_left";
+        camera_info_.width = 612;
+        camera_info_.height = 512;
+        camera_info_.k = {364.36645, 0.0, 313.01115, 0.0, 364.50625, 265.94215, 0.0, 0.0, 0.5}; 
+        camera_info_.p = {
+            305.50570563364914, -390.1270648415417, -39.43468635054541, 21.412935434106018, 
+            210.45725852842935, -6.788288750759677, -414.12592609212084, -46.01812903380915, 
+            0.49558224993861305, -0.0113103401452317, -0.06534759284244043, -0.0147921686264632
+        }; // Projection matrix for LiDAR to rectified image pixels
+
+        timer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / rate), std::bind(&DataPublisher::publish_data, this));
+    }
+
+private:
+    void publish_data() {
+        std::stringstream img_ss, pc_ss;
+        img_ss << image_dir_ << "/" << "2d_rect_cam0_5_" << frame_count_ << ".png";
+        pc_ss << pointcloud_dir_ << "/" << "3d_comp_os1_5_" << frame_count_ << ".bin";
+
+        fs::path img_path(img_ss.str());
+        fs::path pc_path(pc_ss.str());
+
+        if (!fs::exists(img_path) || !fs::exists(pc_path)) {
+            RCLCPP_WARN(this->get_logger(), "Frame %d does not exist. Stopping publisher.", frame_count_);
+            rclcpp::shutdown();
+            return;
+        }
+
+        RCLCPP_INFO(this->get_logger(), "Publishing frame %d", frame_count_);
+        // Publish image
+        cv::Mat image = cv::imread(img_path.string(), cv::IMREAD_COLOR);
+        if (!image.empty()) {
+            auto img_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image).toImageMsg();
+            img_msg->header.frame_id = "camera_frame";
+            img_msg->header.stamp = this->now();
+            image_publisher_->publish(*img_msg);
+
+            // Publish camera intrinsics
+            camera_info_.header.stamp = this->now();
+            camera_info_publisher_->publish(camera_info_);
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Failed to load image: %s", img_path.string().c_str());
+        }
+
+        // Publish point cloud
+        pcl::PointCloud<pcl::PointXYZI> pointcloud;
+        std::ifstream ifs(pc_path.string(), std::ios::binary);
+        if (ifs.is_open()) {
+            while (!ifs.eof()) {
+                pcl::PointXYZI point;
+                ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float));
+                ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float));
+                ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float));
+                ifs.read(reinterpret_cast<char*>(&point.intensity), sizeof(float));
+                pointcloud.push_back(point);
+            }
+            ifs.close();
+
+            sensor_msgs::msg::PointCloud2 pc_msg;
+            pcl::toROSMsg(pointcloud, pc_msg);
+            pc_msg.header.frame_id = "lidar_frame";
+            pc_msg.header.stamp = this->now();
+            pointcloud_publisher_->publish(pc_msg);
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Failed to load point cloud: %s", pc_path.string().c_str());
+        }
+
+        // Broadcast transforms
+        broadcast_transforms();
+
+        frame_count_++;
+    }
+
+    void broadcast_transforms() {
+        // Broadcast sensor frame transform
+        geometry_msgs::msg::TransformStamped transform;
+        transform.header.stamp = this->now();
+        transform.header.frame_id = "world";
+        transform.child_frame_id = "os_sensor";
+        transform.transform.translation.x = 0.0;
+        transform.transform.translation.y = 0.0;
+        transform.transform.translation.z = 0.0;
+        transform.transform.rotation.x = 0.0;
+        transform.transform.rotation.y = 0.0;
+        transform.transform.rotation.z = 0.0;
+        transform.transform.rotation.w = 1.0;
+        tf_broadcaster_->sendTransform(transform);
+
+        // Broadcast camera extrinsics transform
+        geometry_msgs::msg::TransformStamped camera_transform;
+        camera_transform.header.stamp = this->now();
+        camera_transform.header.frame_id = "os_sensor";
+        camera_transform.child_frame_id = "stereo_left";
+        camera_transform.transform.translation.x = 0.1; // Example translation
+        camera_transform.transform.translation.y = 0.0;
+        camera_transform.transform.translation.z = 0.0;
+        camera_transform.transform.rotation.x = 0.0;
+        camera_transform.transform.rotation.y = 0.0;
+        camera_transform.transform.rotation.z = 0.0;
+        camera_transform.transform.rotation.w = 1.0;
+        tf_broadcaster_->sendTransform(camera_transform);
+
+        // Broadcast lidar extrinsics transform
+        geometry_msgs::msg::TransformStamped lidar_transform;
+        lidar_transform.header.stamp = this->now();
+        lidar_transform.header.frame_id = "stereo_left";
+        lidar_transform.child_frame_id = "os_sensor";
+        lidar_transform.transform.translation.x = -0.1; // Example translation
+        lidar_transform.transform.translation.y = 0.0;
+        lidar_transform.transform.translation.z = 0.0;
+        lidar_transform.transform.rotation.x = 0.0;
+        lidar_transform.transform.rotation.y = 0.0;
+        lidar_transform.transform.rotation.z = 0.0;
+        lidar_transform.transform.rotation.w = 1.0;
+        tf_broadcaster_->sendTransform(lidar_transform);
+    }
+
+    std::string image_dir_;
+    std::string pointcloud_dir_;
+    int start_frame_;
+    double rate_;
+    int frame_count_;
+
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_publisher_;
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+    rclcpp::TimerBase::SharedPtr timer_;
+
+    sensor_msgs::msg::CameraInfo camera_info_;
+};
+} // namespace LSMap
+
+int main(int argc, char * argv[]) {
+    rclcpp::init(argc, argv);
+
+    if (argc != 5) {
+        std::cerr << "Usage: data_publisher <image_directory> <pointcloud_directory> <start_frame> <rate>" << std::endl;
+        return 1;
+    }
+
+    std::string image_dir = argv[1];
+    std::string pointcloud_dir = argv[2];
+    int start_frame = std::stoi(argv[3]);
+    double rate = std::stod(argv[4]);
+
+    auto node = std::make_shared<LSMap::DataPublisher>(image_dir, pointcloud_dir, start_frame, rate);
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}
