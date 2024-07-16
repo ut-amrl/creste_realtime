@@ -28,9 +28,9 @@ class DataPublisher : public rclcpp::Node {
 public:
     DataPublisher(const std::string& image_dir, const std::string& pointcloud_dir, int start_frame, double rate)
     : Node("data_publisher"), image_dir_(image_dir), pointcloud_dir_(pointcloud_dir), start_frame_(start_frame), rate_(rate), frame_count_(start_frame) {
-        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("stereo/left", 10);
-        pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("ouster/points", 10);
-        camera_info_publisher_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 10);
+        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/stereo/left", 10);
+        pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/ouster/points", 10);
+        camera_info_publisher_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("/camera_info", 10);
         tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
         // Initialize camera intrinsics (example values, adjust accordingly)
@@ -79,15 +79,25 @@ private:
         }
 
         // Publish point cloud
-        pcl::PointCloud<pcl::PointXYZI> pointcloud;
+        pcl::PointCloud<pcl::PointXYZ> pointcloud;
         std::ifstream ifs(pc_path.string(), std::ios::binary);
         if (ifs.is_open()) {
-            while (!ifs.eof()) {
-                pcl::PointXYZI point;
-                ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float));
-                ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float));
-                ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float));
-                ifs.read(reinterpret_cast<char*>(&point.intensity), sizeof(float));
+            // while (!ifs.eof()) {
+            //     pcl::PointXYZ point;
+            //     ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float));
+            //     ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float));
+            //     ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float));
+            //     ifs.read(reinterpret_cast<char*>(&dummy_intensity), sizeof(float));
+            //     pointcloud.push_back(point);
+            // }
+            // ifs.close();
+            while (true) {
+                pcl::PointXYZ point;
+                float intensity;
+                if (!ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float))) break;
+                if (!ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float))) break;
+                if (!ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float))) break;
+                if (!ifs.read(reinterpret_cast<char*>(&intensity), sizeof(float))) break;
                 pointcloud.push_back(point);
             }
             ifs.close();
@@ -149,6 +159,12 @@ private:
         lidar_transform.transform.rotation.z = 0.0;
         lidar_transform.transform.rotation.w = 1.0;
         tf_broadcaster_->sendTransform(lidar_transform);
+
+        // Broadcast camera info transform
+        sensor_msgs::msg::CameraInfo camera_info = camera_info_;
+        camera_info.header.stamp = this->now();
+        camera_info.header.frame_id = "stereo_left";
+        camera_info_publisher_->publish(camera_info);
     }
 
     std::string image_dir_;

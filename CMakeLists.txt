@@ -17,8 +17,10 @@ ELSEIF(${CMAKE_BUILD_TYPE} MATCHES "Debug")
   SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g")
 ENDIF()
 
+# Set the path to libtorch
+list(APPEND CMAKE_PREFIX_PATH "/usr/local/libtorch")
+
 message(STATUS "Compiling with ROS2 COLCON")
-FIND_PACKAGE(OpenCV REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -29,12 +31,15 @@ find_package(std_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(PCL 1.10 REQUIRED)
+find_package(CUDA REQUIRED)
+find_package(Torch REQUIRED)
 
 # Include directories
 include_directories(
   include
   ${OpenCV_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
+  ${TORCH_INCLUDE_DIRS}
 )
 
 # Link directories
@@ -44,6 +49,7 @@ link_directories(${PCL_LIBRARY_DIRS})
 add_executable(lsmap_node
   src/lsmap_node_main.cc
   src/lsmap_node.cc
+  src/lsmap.cc
   src/processor.cc
 )
 
@@ -69,6 +75,7 @@ ament_target_dependencies(publisher_node
 
 target_link_libraries(lsmap_node
   ${PCL_LIBRARIES}
+  ${TORCH_LIBRARIES}
 )
 
 target_link_libraries(publisher_node
