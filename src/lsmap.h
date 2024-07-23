@@ -8,18 +8,23 @@ namespace lsmap {
 class LSMapModel {
 public:
     LSMapModel(const std::string& model_path, rclcpp::Logger logger) : logger_(logger) {
-        // Initialize model
-        initialize_model(model_path);
+        try {
+            // Load the TorchScript model
+            model_ = torch::jit::load(model_path, torch::kCUDA);
+            RCLCPP_INFO(logger_, "Model loaded successfully.");
+        } catch (const c10::Error& e) {
+            RCLCPP_ERROR(logger_, "Error loading the model: %s", e.what());
+        }
+    }
+
+    // Function takes in cv2 rgbd and matrix and return jit traces named dictionary
+    c10::Dict<c10::IValue, c10::IValue> forward(const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
+        c10::IValue output = model_.forward({inputs});
+        return output.toGenericDict();
     }
 private:
     torch::jit::script::Module model_;
     rclcpp::Logger logger_;
-
-    void initialize_model(const std::string& model_path);
-
-    // Function takes in cv2 rgbd and matrix and return jit traces named dictionary
-    torch::jit::IValue inference(const cv::Mat& image, const cv::Mat& matrix);
-
 };
 
 } // namespace lsmap

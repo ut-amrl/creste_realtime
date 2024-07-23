@@ -37,12 +37,12 @@ public:
         camera_info_.header.frame_id = "stereo_left";
         camera_info_.width = 612;
         camera_info_.height = 512;
-        camera_info_.k = {364.36645, 0.0, 313.01115, 0.0, 364.50625, 265.94215, 0.0, 0.0, 0.5}; 
+        camera_info_.k = {364.36645, 0.0, 313.01115, 0.0, 364.50625, 265.94215, 0.0, 0.0, 1.0}; 
         camera_info_.p = {
-            305.50570563364914, -390.1270648415417, -39.43468635054541, 21.412935434106018, 
-            210.45725852842935, -6.788288750759677, -414.12592609212084, -46.01812903380915, 
-            0.49558224993861305, -0.0113103401452317, -0.06534759284244043, -0.0147921686264632
-        }; // Projection matrix for LiDAR to rectified image pixels
+            303.97445679,   -386.56228638,    -44.00563049,     20.68536568,
+            210.73265076,     -0.73953837,   -412.18536377,    -46.30334091,
+            0.99126321,     -0.01760194,     -0.13071881,     -0.02998733
+        };
 
         timer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / rate), std::bind(&DataPublisher::publish_data, this));
     }
@@ -82,15 +82,6 @@ private:
         pcl::PointCloud<pcl::PointXYZ> pointcloud;
         std::ifstream ifs(pc_path.string(), std::ios::binary);
         if (ifs.is_open()) {
-            // while (!ifs.eof()) {
-            //     pcl::PointXYZ point;
-            //     ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float));
-            //     ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float));
-            //     ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float));
-            //     ifs.read(reinterpret_cast<char*>(&dummy_intensity), sizeof(float));
-            //     pointcloud.push_back(point);
-            // }
-            // ifs.close();
             while (true) {
                 pcl::PointXYZ point;
                 float intensity;
@@ -137,7 +128,7 @@ private:
         camera_transform.header.stamp = this->now();
         camera_transform.header.frame_id = "os_sensor";
         camera_transform.child_frame_id = "stereo_left";
-        camera_transform.transform.translation.x = 0.1; // Example translation
+        camera_transform.transform.translation.x = 0.0; // Example translation
         camera_transform.transform.translation.y = 0.0;
         camera_transform.transform.translation.z = 0.0;
         camera_transform.transform.rotation.x = 0.0;
@@ -151,7 +142,7 @@ private:
         lidar_transform.header.stamp = this->now();
         lidar_transform.header.frame_id = "stereo_left";
         lidar_transform.child_frame_id = "os_sensor";
-        lidar_transform.transform.translation.x = -0.1; // Example translation
+        lidar_transform.transform.translation.x = 0.0; // Example translation
         lidar_transform.transform.translation.y = 0.0;
         lidar_transform.transform.translation.z = 0.0;
         lidar_transform.transform.rotation.x = 0.0;

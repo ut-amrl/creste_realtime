@@ -45,6 +45,9 @@ RUN curl -LO https://download.pytorch.org/libtorch/cu121/libtorch-cxx11-abi-shar
     unzip libtorch-cxx11-abi-shared-with-deps-2.3.1%2Bcu121.zip -d /usr/local && \
     rm libtorch-cxx11-abi-shared-with-deps-2.3.1%2Bcu121.zip
 
+# Install Eigen3
+RUN apt-get update && apt-get install -y libeigen3-dev
+
 # Set up environment
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 

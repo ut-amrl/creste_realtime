@@ -40,8 +40,11 @@ private:
 
     void camera_info_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
 
-    void projection(sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg,                          
-        sensor_msgs::msg::Image::SharedPtr image_msg);
+    void save_depth_image(const cv::Mat &depthMatrix, const std::string &filename);
+
+    std::tuple<torch::Tensor, torch::Tensor> projection(
+        sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg,                   sensor_msgs::msg::Image::SharedPtr image_msg
+    );
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;

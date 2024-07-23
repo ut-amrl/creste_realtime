@@ -33,6 +33,7 @@ find_package(tf2_ros REQUIRED)
 find_package(PCL 1.10 REQUIRED)
 find_package(CUDA REQUIRED)
 find_package(Torch REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 # Include directories
 include_directories(
@@ -40,6 +41,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${TORCH_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 # Link directories
@@ -49,7 +51,6 @@ link_directories(${PCL_LIBRARY_DIRS})
 add_executable(lsmap_node
   src/lsmap_node_main.cc
   src/lsmap_node.cc
-  src/lsmap.cc
   src/processor.cc
 )
 
@@ -71,7 +72,8 @@ ament_target_dependencies(publisher_node
   sensor_msgs
   cv_bridge
   OpenCV
-  )
+  Eigen3
+)
 
 target_link_libraries(lsmap_node
   ${PCL_LIBRARIES}
