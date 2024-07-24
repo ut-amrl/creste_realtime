@@ -148,6 +148,25 @@ namespace lsmap {
         return inputs;
     }
 
+    void LSMapNode::tensorToGridMap(const torch::Tensor& tensor, const std::string& layer_name, grid_map::GridMap& map) {
+        // Ensure the tensor is on CPU and of type float
+        torch::Tensor cpu_tensor = tensor.to(torch::kCPU).to(torch::kFloat32); // [B, 1, H, W]
+
+        // Get tensor dimensions
+        auto height = cpu_tensor.size(2);
+        auto width = cpu_tensor.size(3);
+
+        // Create a grid map with the appropriate dimensions
+        map.setGeometry(grid_map::Length(width, height), 1.0); // Adjust the resolution as needed
+
+        // Populate the grid map with elevation data
+        for (int i = 0; i < height; ++i) {
+            for (int j = 0; j < width; ++j) {
+                map.at(layer_name, grid_map::Index(i, j)) = cpu_tensor[0][0][i][j].item<float>();
+            }
+        }
+    }
+
     void LSMapNode::run()
     {
         sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg;
@@ -194,10 +213,17 @@ namespace lsmap {
         RCLCPP_INFO(this->get_logger(), "Inference time: %f seconds", inference_time.count());
 
         //4 - Process elevation and semantic predictions
+        auto elevation = output.at("elevation_preds").toTensor();
+        auto semantic = output.at("inpainting_sam_preds").toTensor();
 
+        grid_map::GridMap map({"elevation"});
+        map.setFrameId("os_sensor");
+        map.setTimestamp(this->now().nanoseconds());
+        tensorToGridMap(elevation, "elevation", map);
 
         //5 - Publish the results
-
+        auto grid_map_msg_ptr = grid_map::GridMapRosConverter::toMessage(map);
+        grid_map_publisher_->publish(*grid_map_msg_ptr);
     }
 
 

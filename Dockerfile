@@ -47,9 +47,12 @@ RUN curl -LO https://download.pytorch.org/libtorch/cu121/libtorch-cxx11-abi-shar
 
 # Install Eigen3
 RUN apt-get update && apt-get install -y libeigen3-dev
+RUN apt-get update && apt-get install -y ros-humble-grid-map
+# python3-rosdep
 
 # Set up environment
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+RUN rosdep init && rosdep update
 
 # Add the user workspace
 RUN mkdir -p /workspace/src
