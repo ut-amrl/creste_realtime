@@ -32,7 +32,23 @@ RUN apt-get update && apt-get install -y \
     ros-humble-cv-bridge \
     ros-humble-std-msgs \
     ros-humble-pcl-conversions \
-    python3-colcon-common-extensions
+    ros-humble-rviz2 \
+    # ros-humble-rviz2 \
+    # ros-humble-rviz-common \
+    # ros-humble-rviz-default-plugins \
+    # ros-humble-rviz-visual-tools \
+    # ros-humble-rviz-rendering \
+    ros-humble-image-transport-plugins \
+    python3-colcon-common-extensions \
+    # Only necessary for x11 forwarding
+    # software-properties-common \
+    # x11-apps \
+    # mesa-utils
+
+    ENV NVIDIA_VISIBLE_DEVICES \
+    ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES \
+    ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
 # Install PCL library
 RUN apt-get update && apt-get install -y libpcl-dev
@@ -52,7 +68,6 @@ RUN apt-get update && apt-get install -y ros-humble-grid-map
 
 # Set up environment
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-RUN rosdep init && rosdep update
 
 # Add the user workspace
 RUN mkdir -p /workspace/src

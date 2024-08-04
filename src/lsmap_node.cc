@@ -148,23 +148,69 @@ namespace lsmap {
         return inputs;
     }
 
-    void LSMapNode::tensorToGridMap(const torch::Tensor& tensor, const std::string& layer_name, grid_map::GridMap& map) {
+    void LSMapNode::tensorToGridMap(const torch::Tensor& elevation_tensor, const torch::Tensor& rgb_tensor,  grid_map::GridMap& map) {
         // Ensure the tensor is on CPU and of type float
-        torch::Tensor cpu_tensor = tensor.to(torch::kCPU).to(torch::kFloat32); // [B, 1, H, W]
+        // torch::Tensor cpu_tensor = tensor.to(torch::kCPU).to(torch::kFloat32); // [B, 1, H, W]
+        torch::Tensor elevation_cpu_tensor = elevation_tensor.to(torch::kCPU).to(torch::kFloat32); // [B, 1, H, W]
+        torch::Tensor rgb_cpu_tensor = rgb_tensor.to(torch::kCPU).to(torch::kFloat32); // [B, 3, H, W]
 
         // Get tensor dimensions
-        auto height = cpu_tensor.size(2);
-        auto width = cpu_tensor.size(3);
+        auto height = elevation_cpu_tensor.size(2);
+        auto width = elevation_cpu_tensor.size(3);
 
         // Create a grid map with the appropriate dimensions
         map.setGeometry(grid_map::Length(width, height), 1.0); // Adjust the resolution as needed
 
+        // Get pointers to the tensor data
+        const float* elevation_data = elevation_cpu_tensor.data_ptr<float>();
+        const float* rgb_data = rgb_cpu_tensor.data_ptr<float>();
+
         // Populate the grid map with elevation data
+        #pragma omp parallel for collapse(2)
         for (int i = 0; i < height; ++i) {
             for (int j = 0; j < width; ++j) {
-                map.at(layer_name, grid_map::Index(i, j)) = cpu_tensor[0][0][i][j].item<float>();
+                map.at("elevation", grid_map::Index(i, j)) = elevation_data[i * width + j];
             }
         }
+
+        // Create a cv::Mat to hold the image data
+        cv::Mat rgb_image(height, width, CV_32FC3, (void*)rgb_data);
+
+        // Convert the float image to 8-bit image
+        cv::Mat rgb_image_8u;
+        rgb_image.convertTo(rgb_image_8u, CV_8UC3, 255.0);
+
+        grid_map::GridMapCvConverter::addColorLayerFromImage<unsigned char, 3>(rgb_image_8u, "semantics", map);
+    }
+
+    std::tuple<at::Tensor, at::Tensor> LSMapNode::computePCA(const at::Tensor& input_tensor, int components) {
+        // Ensure the tensor is on CPU and of type float
+        at::Tensor cpu_tensor = input_tensor.to(at::kCPU).to(torch::kFloat32);
+
+        // Flatten the tensor to 2D (samples x features)
+        auto flattened = cpu_tensor.flatten(1);
+
+        // Compute the mean of each feature
+        auto mean = flattened.mean(0, /*keepdim=*/true);
+
+        // Center the data
+        auto centered = flattened - mean;
+
+        // Compute the covariance matrix
+        auto covariance_matrix = at::mm(centered.t(), centered) / (flattened.size(0) - 1);
+
+        // Perform eigen decomposition
+        auto eigen = torch::linalg::eigh(covariance_matrix, "U");
+        auto eigenvalues = std::get<0>(eigen);
+        auto eigenvectors = std::get<1>(eigen);
+
+        // Select the top 'components' eigenvectors
+        auto pca_matrix = eigenvectors.narrow(1, 0, components);
+
+        // Project the data onto the new space
+        auto reduced_data = at::mm(centered, pca_matrix);
+
+        return std::make_tuple(reduced_data, pca_matrix);
     }
 
     void LSMapNode::run()
@@ -199,31 +245,51 @@ namespace lsmap {
         if (!cloud_msg || !image_msg) {
             return;
         }
-        
+
+        auto start = std::chrono::high_resolution_clock::now();
         //2 - Project point clouds to image space
         RCLCPP_INFO(this->get_logger(), "Projecting point cloud to image space");
         auto inputs = projection(cloud_msg, image_msg);
-
-        //3 - Perform model inference
-        // Log inference time
-        auto start = std::chrono::high_resolution_clock::now();
-        auto output = model_.forward(inputs);
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> inference_time = end - start;
-        RCLCPP_INFO(this->get_logger(), "Inference time: %f seconds", inference_time.count());
+        RCLCPP_INFO(this->get_logger(), "Projection time: %f seconds", inference_time.count());
+
+        //3 - Perform model inference
+        start = std::chrono::high_resolution_clock::now();
+        // Log inference time
+        auto output = model_.forward(inputs);
+        end = std::chrono::high_resolution_clock::now();
+        inference_time = end - start;
+        RCLCPP_INFO(this->get_logger(), "Model Inference time: %f seconds", inference_time.count());
 
         //4 - Process elevation and semantic predictions
-        auto elevation = output.at("elevation_preds").toTensor();
-        auto semantic = output.at("inpainting_sam_preds").toTensor();
+        start = std::chrono::high_resolution_clock::now();
+        const auto& elevation = output.at("elevation_preds").toTensor();
+        const auto& semantic = output.at("inpainting_sam_preds").toTensor();
 
-        grid_map::GridMap map({"elevation"});
+        //elevation
+
+        //semantic
+        auto [pca_result, principal_components] = computePCA(semantic, 3);
+        pca_result = (pca_result - pca_result.min()) / (pca_result.max() - pca_result.min());
+        auto rgb_tensor = pca_result.reshape({semantic.size(0), 3, semantic.size(2), semantic.size(3)});
+        // // Convert the tensor to a ROS2 Image message and publish
+        // cv::Mat rgb_mat(rgb_image.size(2), rgb_image.size(3), CV_8UC3, rgb_image.data_ptr());
+        // auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "rgb8", rgb_mat).toImageMsg();
+        // image_publisher_->publish(*rgb_msg);
+
+        grid_map::GridMap map({"elevation", "semantics"});
         map.setFrameId("os_sensor");
         map.setTimestamp(this->now().nanoseconds());
-        tensorToGridMap(elevation, "elevation", map);
+        tensorToGridMap(elevation, rgb_tensor, map);
 
         //5 - Publish the results
-        auto grid_map_msg_ptr = grid_map::GridMapRosConverter::toMessage(map);
+        start = std::chrono::high_resolution_clock::now();
+        const auto& grid_map_msg_ptr = grid_map::GridMapRosConverter::toMessage(map);
         grid_map_publisher_->publish(*grid_map_msg_ptr);
+        end = std::chrono::high_resolution_clock::now();
+        inference_time = end - start;
+        RCLCPP_INFO(this->get_logger(), "Map Processing time: %f seconds", inference_time.count());
     }
 
 

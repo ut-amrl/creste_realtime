@@ -21,6 +21,7 @@ ENDIF()
 list(APPEND CMAKE_PREFIX_PATH "/usr/local/libtorch")
 
 message(STATUS "Compiling with ROS2 COLCON")
+find_package(OpenMP REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -36,6 +37,7 @@ find_package(Torch REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(grid_map_ros REQUIRED)
+find_package(grid_map_cv REQUIRED)
 
 # Include directories
 include_directories(
@@ -67,6 +69,7 @@ ament_target_dependencies(lsmap_node
   OpenCV
   grid_map_msgs
   grid_map_ros
+  grid_map_cv
 )
 
 ament_target_dependencies(publisher_node
