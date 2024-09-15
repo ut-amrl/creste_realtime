@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<lsmap::LSMapNode>("/lift-splat-map-realtime/model_trace.pt");
+    auto node = std::make_shared<lsmap::LSMapNode>("/lift-splat-map-realtime/traversability_model_trace.pt");
     while (rclcpp::ok()) {
         rclcpp::spin_some(node);
         node->run();

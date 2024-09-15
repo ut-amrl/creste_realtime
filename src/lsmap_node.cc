@@ -262,10 +262,22 @@ namespace lsmap {
         inference_time = end - start;
         RCLCPP_INFO(this->get_logger(), "Model Inference time: %f seconds", inference_time.count());
 
+        // for (const auto& item : output) {
+        //     // Convert the key to a string and print
+        //     if (item.key().isString()) {
+        //         std::string key_str = item.key().toStringRef();
+        //         std::cout << "Key: " << key_str << std::endl;
+        //     } else {
+        //         std::cout << "Key is not a string." << std::endl;
+        //     }
+        // }
+
+
         //4 - Process elevation and semantic predictions
         start = std::chrono::high_resolution_clock::now();
         const auto& elevation = output.at("elevation_preds").toTensor();
         const auto& semantic = output.at("inpainting_sam_preds").toTensor();
+        const auto& traversability = output.at("traversability_preds_full").toTensor();
 
         //elevation
 
@@ -273,15 +285,17 @@ namespace lsmap {
         auto [pca_result, principal_components] = computePCA(semantic, 3);
         pca_result = (pca_result - pca_result.min()) / (pca_result.max() - pca_result.min());
         auto rgb_tensor = pca_result.reshape({semantic.size(0), 3, semantic.size(2), semantic.size(3)});
-        // // Convert the tensor to a ROS2 Image message and publish
+        // Convert the tensor to a ROS2 Image message and publish
         // cv::Mat rgb_mat(rgb_image.size(2), rgb_image.size(3), CV_8UC3, rgb_image.data_ptr());
         // auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "rgb8", rgb_mat).toImageMsg();
         // image_publisher_->publish(*rgb_msg);
+        // Save rgb mat to image if debug flag enabled
 
         grid_map::GridMap map({"elevation", "semantics"});
         map.setFrameId("os_sensor");
         map.setTimestamp(this->now().nanoseconds());
         tensorToGridMap(elevation, rgb_tensor, map);
+
 
         //5 - Publish the results
         start = std::chrono::high_resolution_clock::now();

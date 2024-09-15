@@ -7,8 +7,11 @@ xhost +local:podman
 docker run -it --rm \
     --gpus all \
     --net=host \
-    --security-opt label=disable \
-    --env="DISPLAY" \
+    --ipc=host \
+    --pid=host \
+    -e ROS_DOMAIN_ID=42 \
+    -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+    -e DISPLAY=$DISPLAY \
     --env="NVIDIA_DRIVER_CAPABILITIES=all" \
     -v "/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     -v "$HOME/.Xauthority:/root/.Xauthority:rw" \

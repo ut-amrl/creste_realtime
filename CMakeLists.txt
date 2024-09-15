@@ -35,6 +35,7 @@ find_package(PCL 1.10 REQUIRED)
 find_package(CUDA REQUIRED)
 find_package(Torch REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(grid_map_core REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(grid_map_ros REQUIRED)
 find_package(grid_map_cv REQUIRED)
@@ -46,6 +47,7 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
   ${TORCH_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  ${grid_map_core_INCLUDE_DIRS}
 )
 
 # Link directories
@@ -67,6 +69,7 @@ ament_target_dependencies(lsmap_node
   sensor_msgs
   cv_bridge
   OpenCV
+  grid_map_core
   grid_map_msgs
   grid_map_ros
   grid_map_cv
@@ -84,6 +87,7 @@ ament_target_dependencies(publisher_node
 target_link_libraries(lsmap_node
   ${PCL_LIBRARIES}
   ${TORCH_LIBRARIES}
+  ${grid_map_core_INCLUDE_DIRS}
 )
 
 target_link_libraries(publisher_node

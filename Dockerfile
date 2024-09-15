@@ -39,13 +39,13 @@ RUN apt-get update && apt-get install -y \
     # ros-humble-rviz-visual-tools \
     # ros-humble-rviz-rendering \
     ros-humble-image-transport-plugins \
-    python3-colcon-common-extensions \
-    # Only necessary for x11 forwarding
-    # software-properties-common \
-    # x11-apps \
-    # mesa-utils
+    python3-colcon-common-extensions 
+# Only necessary for x11 forwarding
+# software-properties-common \
+# x11-apps \
+# mesa-utils
 
-    ENV NVIDIA_VISIBLE_DEVICES \
+ENV NVIDIA_VISIBLE_DEVICES \
     ${NVIDIA_VISIBLE_DEVICES:-all}
 ENV NVIDIA_DRIVER_CAPABILITIES \
     ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics

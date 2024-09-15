@@ -19,7 +19,7 @@ public:
 
     // Function takes in cv2 rgbd and matrix and return jit traces named dictionary
     c10::Dict<c10::IValue, c10::IValue> forward(const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
-        c10::IValue output = model_.forward({inputs});
+        c10::IValue output = model_.forward({inputs});\
         return output.toGenericDict();
     }
 private:
