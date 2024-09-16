@@ -18,9 +18,22 @@ public:
     }
 
     // Function takes in cv2 rgbd and matrix and return jit traces named dictionary
-    c10::Dict<c10::IValue, c10::IValue> forward(const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
+    std::unordered_map<std::string, torch::Tensor> forward(const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
         c10::IValue output = model_.forward({inputs});\
-        return output.toGenericDict();
+        // Convert the output to a generic dictionary
+        auto dict = output.toGenericDict();
+
+        // Convert dictionary values to a map of strings and tensors
+        std::unordered_map<std::string, torch::Tensor> output_map;
+        for (const auto& item : dict) {
+            // Extract key as a string and value as a tensor
+            std::string key = item.key().toString()->string();
+            torch::Tensor value = item.value().toTensor();
+
+            output_map[key] = value;
+        }
+
+        return output_map;
     }
 private:
     torch::jit::script::Module model_;

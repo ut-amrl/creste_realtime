@@ -50,8 +50,8 @@ public:
 private:
     void publish_data() {
         std::stringstream img_ss, pc_ss;
-        img_ss << image_dir_ << "/" << "2d_rect_cam0_5_" << frame_count_ << ".png";
-        pc_ss << pointcloud_dir_ << "/" << "3d_comp_os1_5_" << frame_count_ << ".bin";
+        img_ss << image_dir_ << "/" << "2d_rect_cam0_1_" << frame_count_ << ".png";
+        pc_ss << pointcloud_dir_ << "/" << "3d_comp_os1_1_" << frame_count_ << ".bin";
 
         fs::path img_path(img_ss.str());
         fs::path pc_path(pc_ss.str());
@@ -95,7 +95,7 @@ private:
 
             sensor_msgs::msg::PointCloud2 pc_msg;
             pcl::toROSMsg(pointcloud, pc_msg);
-            pc_msg.header.frame_id = "lidar_frame";
+            pc_msg.header.frame_id = "os_sensor";
             pc_msg.header.stamp = this->now();
             pointcloud_publisher_->publish(pc_msg);
         } else {

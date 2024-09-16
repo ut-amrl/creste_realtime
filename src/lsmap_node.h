@@ -51,7 +51,12 @@ private:
 
     void save_depth_image(const cv::Mat &depthMatrix, const std::string &filename);
 
-    void tensorToGridMap(const torch::Tensor& elevation_tensor, const torch::Tensor& rgb_tensor,  grid_map::GridMap& map);
+    void tensorToGridMap(
+        const std::unordered_map<std::string, torch::Tensor>& output, 
+        grid_map::GridMap& map
+    );
+
+    bool is_cell_visible(const int i, const int j, const int grid_height, const int grid_width);
 
     std::tuple<torch::Tensor, torch::Tensor> computePCA(const torch::Tensor& tensor, int components);
 

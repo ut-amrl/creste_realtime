@@ -1,4 +1,6 @@
 **/.vscode/**
 **/build/**
+**/data/**
 *.pt
 *.png
+*.bkp
