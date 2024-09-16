@@ -26,12 +26,16 @@ namespace fs = boost::filesystem;
 namespace LSMap {
 class DataPublisher : public rclcpp::Node {
 public:
-    DataPublisher(const std::string& image_dir, const std::string& pointcloud_dir, int start_frame, double rate)
-    : Node("data_publisher"), image_dir_(image_dir), pointcloud_dir_(pointcloud_dir), start_frame_(start_frame), rate_(rate), frame_count_(start_frame) {
+    DataPublisher(const std::string& image_dir, const std::string& pointcloud_dir, int sequence, int start_frame, double rate)
+    : Node("data_publisher"), image_dir_(image_dir), pointcloud_dir_(pointcloud_dir), sequence_(sequence), start_frame_(start_frame), rate_(rate), frame_count_(start_frame) {
         image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/stereo/left", 10);
         pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/ouster/points", 10);
         camera_info_publisher_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("/camera_info", 10);
         tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
+
+        // Add sequence prefix to image and pc dir
+        image_dir_ = image_dir_ + "/" + std::to_string(sequence_);
+        pointcloud_dir_ = pointcloud_dir_ + "/" + std::to_string(sequence_);
 
         // Initialize camera intrinsics (example values, adjust accordingly)
         camera_info_.header.frame_id = "stereo_left";
@@ -50,8 +54,8 @@ public:
 private:
     void publish_data() {
         std::stringstream img_ss, pc_ss;
-        img_ss << image_dir_ << "/" << "2d_rect_cam0_1_" << frame_count_ << ".png";
-        pc_ss << pointcloud_dir_ << "/" << "3d_comp_os1_1_" << frame_count_ << ".bin";
+        img_ss << image_dir_ << "/" << "2d_rect_cam0_" << sequence_ << "_" << frame_count_ << ".png";
+        pc_ss << pointcloud_dir_ << "/" << "3d_comp_os1_" << sequence_ << "_" << frame_count_ << ".bin";
 
         fs::path img_path(img_ss.str());
         fs::path pc_path(pc_ss.str());
@@ -79,16 +83,44 @@ private:
         }
 
         // Publish point cloud
-        pcl::PointCloud<pcl::PointXYZ> pointcloud;
+        pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
         std::ifstream ifs(pc_path.string(), std::ios::binary);
         if (ifs.is_open()) {
             while (true) {
-                pcl::PointXYZ point;
+                pcl::PointXYZRGB point;
                 float intensity;
                 if (!ifs.read(reinterpret_cast<char*>(&point.x), sizeof(float))) break;
                 if (!ifs.read(reinterpret_cast<char*>(&point.y), sizeof(float))) break;
                 if (!ifs.read(reinterpret_cast<char*>(&point.z), sizeof(float))) break;
                 if (!ifs.read(reinterpret_cast<char*>(&intensity), sizeof(float))) break;
+
+                if (point.x <= 0) continue;
+
+                // Project 3d point to camera frame using camera projection matrix P
+                // convert double array to float array
+                std::vector<float> p;
+                for (size_t i = 0; i < camera_info_.p.size(); i++) {
+                    p.push_back(static_cast<float>(camera_info_.p[i]));
+                }
+                Eigen::Matrix<float, 3, 4, Eigen::RowMajor> P;
+                for (size_t i = 0; i < 3; i++) {
+                    for (size_t j = 0; j < 4; j++) {
+                        P(i, j) = static_cast<float>(p[i * 4 + j]);
+                    }
+                }
+
+                Eigen::Vector4f point3d(point.x, point.y, point.z, 1);
+                Eigen::Vector3f pixel_uv = P * point3d;
+                pixel_uv /= pixel_uv(2);
+
+                // Check if point is within image bounds
+                if (pixel_uv(0) < 0 || pixel_uv(0) >= camera_info_.width || pixel_uv(1) < 0 || pixel_uv(1) >= camera_info_.height) {
+                    continue;
+                }
+                point.r = image.at<cv::Vec3b>(pixel_uv(1), pixel_uv(0))[2];
+                point.g = image.at<cv::Vec3b>(pixel_uv(1), pixel_uv(0))[1];
+                point.b = image.at<cv::Vec3b>(pixel_uv(1), pixel_uv(0))[0];
+
                 pointcloud.push_back(point);
             }
             ifs.close();
@@ -160,6 +192,7 @@ private:
 
     std::string image_dir_;
     std::string pointcloud_dir_;
+    int sequence_;
     int start_frame_;
     double rate_;
     int frame_count_;
@@ -177,17 +210,18 @@ private:
 int main(int argc, char * argv[]) {
     rclcpp::init(argc, argv);
 
-    if (argc != 5) {
-        std::cerr << "Usage: data_publisher <image_directory> <pointcloud_directory> <start_frame> <rate>" << std::endl;
+    if (argc != 6) {
+        std::cerr << "Usage: data_publisher <image_directory> <pointcloud_directory> <sequence> <start_frame> <rate>" << std::endl;
         return 1;
     }
 
     std::string image_dir = argv[1];
     std::string pointcloud_dir = argv[2];
-    int start_frame = std::stoi(argv[3]);
-    double rate = std::stod(argv[4]);
+    int sequence = std::stoi(argv[3]);
+    int start_frame = std::stoi(argv[4]);
+    double rate = std::stod(argv[5]);
 
-    auto node = std::make_shared<LSMap::DataPublisher>(image_dir, pointcloud_dir, start_frame, rate);
+    auto node = std::make_shared<LSMap::DataPublisher>(image_dir, pointcloud_dir, sequence, start_frame, rate);
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;

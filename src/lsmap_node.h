@@ -17,6 +17,7 @@
 #include <grid_map_cv/grid_map_cv.hpp>
 
 #include "lsmap.h"
+#include "utils.h"
 
 using std::placeholders::_1;
 
@@ -35,6 +36,9 @@ public:
 
         camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
             "/camera_info", 10, std::bind(&LSMapNode::camera_info_callback, this, _1));
+
+        // Create fov mask TODO: Change hardcoded map size
+        fov_mask_ = createTrapezoidalFovMask(256, 256);
 
         // Publisher for Image topic
         image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/lsmap/rgbd", 10);
@@ -77,5 +81,6 @@ private:
     std::queue<sensor_msgs::msg::PointCloud2::SharedPtr> cloud_queue_;
     std::queue<sensor_msgs::msg::Image::SharedPtr> image_queue_;
     std::mutex queue_mutex_;
+    std::vector<std::vector<bool>> fov_mask_;
 };
 } // namespace lsmap

@@ -147,10 +147,6 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::projection(
   rgbd_tensor = rgbd_tensor.unsqueeze(0).unsqueeze(
       0);  // [C, H, W] -> [B, #cams, C, H, W]
   rgbd_tensor = rgbd_tensor.to(torch::kCUDA);
-  // Iterate through each dim in the tensor
-  for (int i = 0; i < rgbd_tensor.dim(); i++) {
-    RCLCPP_INFO(this->get_logger(), "Tensor dim %d: %ld", i, rgbd_tensor.size(i));
-  }
 
   // Create point2pixel matrix for inference
   Eigen::Matrix<float, 4, 4> pixel2point;
@@ -203,9 +199,12 @@ void LSMapNode::tensorToGridMap(
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < grid_height; ++i) {
       for (int j = 0; j < grid_width; ++j) {
+        float grid_val = tensor_data[i * grid_width + j];
+        if (!this->fov_mask_[i][j]) {
+          grid_val = 0.0;
+        }
         
-        map.at(field, grid_map::Index(i, j)) =
-            tensor_data[i * grid_width + j];
+        map.at(field, grid_map::Index(i, j)) = grid_val;
       }
     }
   }
