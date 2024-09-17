@@ -6,6 +6,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
 #include <pcl_conversions/pcl_conversions.h>
@@ -37,6 +38,9 @@ public:
         camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
             "/camera_info", 10, std::bind(&LSMapNode::camera_info_callback, this, _1));
 
+        p2p_subscriber_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/p2p", 10, std::bind(&LSMapNode::p2p_callback, this, _1));
+
         // Create fov mask TODO: Change hardcoded map size
         fov_mask_ = createTrapezoidalFovMask(256, 256);
 
@@ -50,6 +54,8 @@ private:
     void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg);
+
+    void p2p_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
 
     void camera_info_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
 
@@ -71,7 +77,9 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr p2p_subscriber_;
     sensor_msgs::msg::CameraInfo camera_info_;
+    std_msgs::msg::Float32MultiArray pixel_to_point_;
     
     //Publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;

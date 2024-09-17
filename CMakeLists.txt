@@ -39,6 +39,7 @@ find_package(grid_map_core REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(grid_map_ros REQUIRED)
 find_package(grid_map_cv REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Include directories
 include_directories(
@@ -48,6 +49,7 @@ include_directories(
   ${TORCH_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${grid_map_core_INCLUDE_DIRS}
+  ${YAML_CPP_INCLUDE_DIRS} 
 )
 
 # Link directories
@@ -88,10 +90,12 @@ target_link_libraries(lsmap_node
   ${PCL_LIBRARIES}
   ${TORCH_LIBRARIES}
   ${grid_map_core_INCLUDE_DIRS}
+  yaml-cpp
 )
 
 target_link_libraries(publisher_node
   ${PCL_LIBRARIES}
+  yaml-cpp
 )
 
 # Install targets

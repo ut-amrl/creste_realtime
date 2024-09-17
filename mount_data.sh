@@ -5,7 +5,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # Define variables
 REMOTE_USER="arthurz"
 REMOTE_HOST="robolidar.csres.utexas.edu"
-REMOTE_DIRS=("/robodata/arthurz/Research/lift-splat-map/data/coda/3d_comp/os1" "/robodata/arthurz/Research/lift-splat-map/data/coda/downsampled_2/2d_rect/cam0" "/robodata/arthurz/Datasets/CODa_v2/calibrations")
+REMOTE_DIRS=("/robodata/arthurz/Research/lift-splat-map/data/coda/3d_comp/os1" "/robodata/arthurz/Research/lift-splat-map/data/coda/2d_rect/cam0" "/robodata/arthurz/Datasets/CODa_v2/calibrations")
 LOCAL_MOUNT_BASE="$DIR/data"
 
 # Store mount points
