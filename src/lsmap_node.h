@@ -2,30 +2,27 @@
 #define LSMAP_NODE_H
 
 #include <omp.h>
-#include <torch/torch.h>
 #include <torch/script.h>
+#include <torch/torch.h>
 
 // ROS 1 headers
-#include <ros/ros.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <std_msgs/Float32MultiArray.h>
 #include <cv_bridge/cv_bridge.h>
+#include <ros/ros.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <std_msgs/Float32MultiArray.h>
 
 // PCL
-#include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 
-// Grid Map
-#include <grid_map_ros/grid_map_ros.hpp>
-#include <grid_map_msgs/GridMap.h>
-#include <grid_map_cv/grid_map_cv.hpp>
+#include "yaml-cpp/yaml.h"
 
 // STL / OpenCV
-#include <opencv2/opencv.hpp>
 #include <mutex>
+#include <opencv2/opencv.hpp>
 #include <queue>
 #include <string>
 #include <unordered_map>
@@ -35,35 +32,43 @@
 #include "lsmap.h"
 #include "utils.h"
 
-namespace lsmap
-{
-class LSMapNode
-{
-public:
-  LSMapNode(const std::string& model_path);
+namespace lsmap {
+
+struct CalibInfo {
+  int rows;
+  int cols;
+  std::vector<float> data;
+};
+
+class LSMapNode {
+ public:
+  LSMapNode(const std::string& config_path);
 
   /// \brief Main processing function called periodically in main()
   void run();
 
-private:
+ private:
   // === Callbacks ===
-  void pointcloud_callback(const sensor_msgs::PointCloud2ConstPtr& msg);
-  void image_callback(const sensor_msgs::ImageConstPtr& msg);
-  void p2p_callback(const std_msgs::Float32MultiArrayConstPtr& msg);
-  void camera_info_callback(const sensor_msgs::CameraInfoConstPtr& msg);
+  void PointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
+  void ImageCallback(const sensor_msgs::ImageConstPtr& msg);
+  void CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg);
 
   // === Helper functions ===
-  void save_depth_image(const cv::Mat& depthMatrix, const std::string& filename);
-//   void tensorToGridMap(const std::unordered_map<std::string, torch::Tensor>& output,
-//                        grid_map::GridMap& map);
-  bool is_cell_visible(const int i, const int j, const int grid_height, const int grid_width);
-  std::tuple<torch::Tensor, torch::Tensor> computePCA(const torch::Tensor& tensor, int components);
+  void LoadCalibInfo(const YAML::Node& config);
+  void save_depth_image(const cv::Mat& depthMatrix,
+                        const std::string& filename);
+  //   void tensorToGridMap(const std::unordered_map<std::string,
+  //   torch::Tensor>& output,
+  //                        grid_map::GridMap& map);
+  bool is_cell_visible(const int i, const int j, const int grid_height,
+                       const int grid_width);
 
   // Projection function for combining point cloud & image
-  std::tuple<torch::Tensor, torch::Tensor> projection(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
-                                                      const sensor_msgs::ImageConstPtr& image_msg);
+  std::tuple<torch::Tensor, torch::Tensor> projection(
+      const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
+      const sensor_msgs::ImageConstPtr& image_msg);
 
-private:
+ private:
   // === ROS 1 NodeHandle ===
   ros::NodeHandle nh_;
 
@@ -75,11 +80,18 @@ private:
 
   // === Publishers ===
   ros::Publisher image_publisher_;
-  ros::Publisher grid_map_publisher_;
+  ros::Publisher depth_publisher_;
+  ros::Publisher traversability_publisher_;
 
   // === ROS messages ===
   sensor_msgs::CameraInfo camera_info_;
-  std_msgs::Float32MultiArray pixel_to_point_;
+  CalibInfo pt2pix_, pix2pt_;
+
+  // Whether we have computed our remap matrices yet
+  bool has_rectification_{false};
+
+  // Remap matrices for OpenCV
+  cv::Mat map1_, map2_;
 
   // === Buffers/queues ===
   std::queue<sensor_msgs::PointCloud2ConstPtr> cloud_queue_;
@@ -87,8 +99,8 @@ private:
   std::mutex queue_mutex_;
 
   // === Misc ===
-  lsmap::LSMapModel model_;
-  std::vector<std::vector<bool>> fov_mask_;
+  std::shared_ptr<lsmap::LSMapModel> model_;
+  torch::Tensor fov_mask_;
 };
 }  // namespace lsmap
 

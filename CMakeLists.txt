@@ -39,10 +39,6 @@ find_package(Torch REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
-# find_package(grid_map_core REQUIRED)
-# find_package(grid_map_msgs REQUIRED)
-# find_package(grid_map_ros REQUIRED)
-# find_package(grid_map_cv REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # If you need GridMap libs (grid_map_core, grid_map_ros, etc.), 
@@ -57,16 +53,11 @@ find_package(yaml-cpp REQUIRED)
 # 
 # For linking, we’ll gather them into a variable.
 # You can also add roslib, roscpp, etc. as needed.
-set(ros_libs
+set(libs
+  roslib
   roscpp
-  sensor_msgs
-  std_msgs
   cv_bridge
-  pcl_conversions
-  # grid_map_core
-  # grid_map_ros
-  # grid_map_cv
-  # grid_map_msgs
+  yaml-cpp
 )
 
 #-----------------------------------------------------------------------------
@@ -99,11 +90,12 @@ rosbuild_gensrv()
 rosbuild_add_executable(creste_node
   src/lsmap_node_main.cc
   src/lsmap_node.cc
+  src/utils.cc
 )
 
 # Link libraries for lsmap_node
 target_link_libraries(creste_node
-  ${ros_libs}
+  ${libs}
   ${OpenCV_LIBS}
   ${PCL_LIBRARIES}
   ${TORCH_LIBRARIES}
@@ -120,7 +112,7 @@ rosbuild_add_executable(publisher_node
 )
 
 target_link_libraries(publisher_node
-  ${ros_libs}
+  ${libs}
   ${OpenCV_LIBS}
   ${PCL_LIBRARIES}
   # etc.

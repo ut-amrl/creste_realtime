@@ -1,6 +1,7 @@
 **/.vscode/**
 **/build/**
 **/data/**
+**/bin/**
 *.pt
 *.png
 *.bkp
