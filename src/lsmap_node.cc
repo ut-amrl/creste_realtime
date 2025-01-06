@@ -148,34 +148,6 @@ void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
   }
 }
 
-void LSMapNode::save_depth_image(const cv::Mat& depthMatrix,
-                                 const std::string& filename) {
-  if (depthMatrix.empty()) {
-    ROS_ERROR("Invalid input matrix for save_depth_image.");
-    return;
-  }
-
-  ROS_INFO("Saving depth image of size [%d x %d]", depthMatrix.rows,
-           depthMatrix.cols);
-  cv::Mat normDepthImage = cv::Mat::zeros(depthMatrix.size(), CV_8UC1);
-  double min_depth, max_depth;
-  cv::minMaxLoc(depthMatrix, &min_depth, &max_depth);
-  for (int i = 0; i < depthMatrix.rows; ++i) {
-    for (int j = 0; j < depthMatrix.cols; ++j) {
-      float depth = depthMatrix.at<float>(i, j);
-      uchar normDepth = static_cast<uchar>(255 * (depth - min_depth) /
-                                           (max_depth - min_depth));
-      normDepthImage.at<uchar>(i, j) = normDepth;
-    }
-  }
-
-  if (!cv::imwrite(filename, normDepthImage)) {
-    ROS_ERROR("Failed to save depth image to %s", filename.c_str());
-  } else {
-    ROS_INFO("Depth image saved to %s", filename.c_str());
-  }
-}
-
 std::tuple<torch::Tensor, torch::Tensor> LSMapNode::projection(
     const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     const sensor_msgs::ImageConstPtr& image_msg) {
@@ -243,13 +215,6 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::projection(
 
   // Convert to millimeters
   depth_image *= 1000.0f;
-
-  // save_depth_image(depth_image, "./depth_image.png");
-
-  // TODO: Modify this to accept image size parameters and resize accordingly
-  // cv::resize(rgb_image, rgb_image, cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
-  // cv::resize(depth_image, depth_image, cv::Size(), 0.5, 0.5,
-  // cv::INTER_NEAREST);
 
   // Merge RGB + Depth -> 4 channels
   cv::Mat rgbd_image;
@@ -352,23 +317,16 @@ void LSMapNode::run() {
   tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
   tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
 
+  // Store the model outputs
+  {
+    std::lock_guard<std::mutex> lock(model_outputs_mutex_);
+    model_outputs_ = tensor_map;
+  }
+
   // Publish model predictions
   PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
   PublishTraversability(tensor_map, "traversability",
                         traversability_publisher_);
-
-  // saveOutputImages(tensor_map);
-  // saveElevationImage(tensor_map, "elevation");
-  // saveSemanticImage(tensor_map, "static_sem");
-  // saveTraversabilityImage(tensor_map, "traversability");
-  // saveCompletedDepthImage(tensor_map, "depth_preds");
-
-  // Example: Save traversability to a file (optional)
-  // auto pickled = torch::pickle_save(tensor_map["traversability"]);
-  // std::ofstream fout("traversability.pt", std::ios::out | std::ios::binary);
-  // fout.write(pickled.data(), pickled.size());
-  // fout.close();
-
   end = ros::Time::now();
   ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
 }

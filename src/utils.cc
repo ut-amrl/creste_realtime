@@ -30,6 +30,34 @@ std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
   return std::make_tuple(reduced_data, pca_matrix);
 }
 
+// void LSMapNode::SaveDepthImage(const cv::Mat& depthMatrix,
+//                                const std::string& filename) {
+//   if (depthMatrix.empty()) {
+//     ROS_ERROR("Invalid input matrix for save_depth_image.");
+//     return;
+//   }
+
+//   ROS_INFO("Saving depth image of size [%d x %d]", depthMatrix.rows,
+//            depthMatrix.cols);
+//   cv::Mat normDepthImage = cv::Mat::zeros(depthMatrix.size(), CV_8UC1);
+//   double min_depth, max_depth;
+//   cv::minMaxLoc(depthMatrix, &min_depth, &max_depth);
+//   for (int i = 0; i < depthMatrix.rows; ++i) {
+//     for (int j = 0; j < depthMatrix.cols; ++j) {
+//       float depth = depthMatrix.at<float>(i, j);
+//       uchar normDepth = static_cast<uchar>(255 * (depth - min_depth) /
+//                                            (max_depth - min_depth));
+//       normDepthImage.at<uchar>(i, j) = normDepth;
+//     }
+//   }
+
+//   if (!cv::imwrite(filename, normDepthImage)) {
+//     ROS_ERROR("Failed to save depth image to %s", filename.c_str());
+//   } else {
+//     ROS_INFO("Depth image saved to %s", filename.c_str());
+//   }
+// }
+
 void saveElevationImage(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key) {

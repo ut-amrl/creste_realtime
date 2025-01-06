@@ -5,6 +5,9 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
+// AMRL Service messages
+#include "amrl_msgs/CarrotPlannerSrv.h"
+
 // ROS 1 headers
 #include <cv_bridge/cv_bridge.h>
 #include <ros/ros.h>
@@ -31,6 +34,8 @@
 // Local headers
 #include "lsmap.h"
 #include "utils.h"
+
+using amrl_msgs::CarrotPlannerSrv;
 
 namespace lsmap {
 
@@ -100,6 +105,8 @@ class LSMapNode {
 
   // === Misc ===
   std::shared_ptr<lsmap::LSMapModel> model_;
+  std::mutex model_outputs_mutex_;
+  std::unordered_map<std::string, torch::Tensor> model_outputs_;
   torch::Tensor fov_mask_;
 };
 }  // namespace lsmap
