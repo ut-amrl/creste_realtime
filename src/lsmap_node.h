@@ -1,94 +1,95 @@
+#ifndef LSMAP_NODE_H
+#define LSMAP_NODE_H
+
 #include <omp.h>
 #include <torch/torch.h>
 #include <torch/script.h>
 
-#include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/image.hpp>
-#include <sensor_msgs/msg/camera_info.hpp>
-#include <std_msgs/msg/float32_multi_array.hpp>
+// ROS 1 headers
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <cv_bridge/cv_bridge.h>
-#include <opencv2/opencv.hpp>
+
+// PCL
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+// Grid Map
 #include <grid_map_ros/grid_map_ros.hpp>
-#include <grid_map_msgs/msg/grid_map.hpp>
+#include <grid_map_msgs/GridMap.h>
 #include <grid_map_cv/grid_map_cv.hpp>
 
+// STL / OpenCV
+#include <opencv2/opencv.hpp>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Local headers
 #include "lsmap.h"
 #include "utils.h"
 
-using std::placeholders::_1;
-
-namespace lsmap {
-class LSMapNode : public rclcpp::Node {
+namespace lsmap
+{
+class LSMapNode
+{
 public:
-    LSMapNode(const std::string model_path) : Node("lsmap_node"), model_(model_path, this->get_logger()) {
-        RCLCPP_INFO(this->get_logger(), "LSMapNode initialized.");
-        // Subscription to PointCloud2 topic
-        pointcloud_subscriber_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/ouster/points", 10, std::bind(&LSMapNode::pointcloud_callback, this, _1));
+  LSMapNode(const std::string& model_path);
 
-        // Subscription to Image topic
-        image_subscriber_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/stereo/left", 10, std::bind(&LSMapNode::image_callback, this, _1));
+  /// \brief Main processing function called periodically in main()
+  void run();
 
-        camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-            "/camera_info", 10, std::bind(&LSMapNode::camera_info_callback, this, _1));
-
-        p2p_subscriber_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-            "/p2p", 10, std::bind(&LSMapNode::p2p_callback, this, _1));
-
-        // Create fov mask TODO: Change hardcoded map size
-        fov_mask_ = createTrapezoidalFovMask(256, 256);
-
-        // Publisher for Image topic
-        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/lsmap/rgbd", 10);
-        grid_map_publisher_ = this->create_publisher<grid_map_msgs::msg::GridMap>("/lsmap/grid_map", 10);
-    }
-
-    void run();
 private:
-    void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  // === Callbacks ===
+  void pointcloud_callback(const sensor_msgs::PointCloud2ConstPtr& msg);
+  void image_callback(const sensor_msgs::ImageConstPtr& msg);
+  void p2p_callback(const std_msgs::Float32MultiArrayConstPtr& msg);
+  void camera_info_callback(const sensor_msgs::CameraInfoConstPtr& msg);
 
-    void image_callback(const sensor_msgs::msg::Image::SharedPtr msg);
+  // === Helper functions ===
+  void save_depth_image(const cv::Mat& depthMatrix, const std::string& filename);
+//   void tensorToGridMap(const std::unordered_map<std::string, torch::Tensor>& output,
+//                        grid_map::GridMap& map);
+  bool is_cell_visible(const int i, const int j, const int grid_height, const int grid_width);
+  std::tuple<torch::Tensor, torch::Tensor> computePCA(const torch::Tensor& tensor, int components);
 
-    void p2p_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
+  // Projection function for combining point cloud & image
+  std::tuple<torch::Tensor, torch::Tensor> projection(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
+                                                      const sensor_msgs::ImageConstPtr& image_msg);
 
-    void camera_info_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
+private:
+  // === ROS 1 NodeHandle ===
+  ros::NodeHandle nh_;
 
-    void save_depth_image(const cv::Mat &depthMatrix, const std::string &filename);
+  // === Subscribers ===
+  ros::Subscriber pointcloud_subscriber_;
+  ros::Subscriber image_subscriber_;
+  ros::Subscriber camera_info_subscriber_;
+  ros::Subscriber p2p_subscriber_;
 
-    void tensorToGridMap(
-        const std::unordered_map<std::string, torch::Tensor>& output, 
-        grid_map::GridMap& map
-    );
+  // === Publishers ===
+  ros::Publisher image_publisher_;
+  ros::Publisher grid_map_publisher_;
 
-    bool is_cell_visible(const int i, const int j, const int grid_height, const int grid_width);
+  // === ROS messages ===
+  sensor_msgs::CameraInfo camera_info_;
+  std_msgs::Float32MultiArray pixel_to_point_;
 
-    std::tuple<torch::Tensor, torch::Tensor> computePCA(const torch::Tensor& tensor, int components);
+  // === Buffers/queues ===
+  std::queue<sensor_msgs::PointCloud2ConstPtr> cloud_queue_;
+  std::queue<sensor_msgs::ImageConstPtr> image_queue_;
+  std::mutex queue_mutex_;
 
-    std::tuple<torch::Tensor, torch::Tensor> projection(
-        sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg,                   sensor_msgs::msg::Image::SharedPtr image_msg
-    );
-
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_subscriber_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
-    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr p2p_subscriber_;
-    sensor_msgs::msg::CameraInfo camera_info_;
-    std_msgs::msg::Float32MultiArray pixel_to_point_;
-    
-    //Publishers
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
-    rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_publisher_;
-
-    lsmap::LSMapModel model_;
-    std::queue<sensor_msgs::msg::PointCloud2::SharedPtr> cloud_queue_;
-    std::queue<sensor_msgs::msg::Image::SharedPtr> image_queue_;
-    std::mutex queue_mutex_;
-    std::vector<std::vector<bool>> fov_mask_;
+  // === Misc ===
+  lsmap::LSMapModel model_;
+  std::vector<std::vector<bool>> fov_mask_;
 };
-} // namespace lsmap
+}  // namespace lsmap
+
+#endif  // LSMAP_NODE_H
