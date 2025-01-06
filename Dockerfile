@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     software-properties-common \
     tmux \
+    vim \
     unzip && \
     rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install ROS Noetic (minimal + needed packages)
 RUN apt-get install -y --no-install-recommends \
-    ros-noetic-ros-base \
+    ros-noetic-desktop \
     ros-noetic-cv-bridge \
     ros-noetic-sensor-msgs \
     ros-noetic-std-msgs \
@@ -49,9 +50,9 @@ RUN apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize rosdep if needed:
-# RUN apt-get update && apt-get install -y python3-rosdep && \
-#     rosdep init && \
-#     rosdep update
+RUN apt-get update && apt-get install -y python3-rosdep && \
+    rosdep init && \
+    rosdep update
 
 #-----------------------------------------------------------
 # 3) Environment setup
@@ -81,15 +82,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev &
 # 5) Source ROS in .bashrc
 #-----------------------------------------------------------
 RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
-
-#-----------------------------------------------------------
-# 6) Create a catkin workspace
-#-----------------------------------------------------------
-RUN mkdir -p /workspace/src
-WORKDIR /workspace
-
-# Copy your package into the workspace
-COPY . /workspace/src/lsmap_realtime
+RUN echo "export ROS_PACKAGE_PATH=/home/creste_realtime/home/amrl_msgs:\$ROS_PACKAGE_PATH" >> ~/.bashrc
 
 # Note: In ROS 1, you typically use catkin_make or catkin tools
 # We won't build here by default, because you may want to build interactively.

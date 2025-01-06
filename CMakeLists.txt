@@ -1,7 +1,7 @@
 # Minimum version for older ROS distributions:
 # (rosbuild often used 2.6 as a baseline)
 cmake_minimum_required(VERSION 2.6)
-project(lsmap_realtime)
+project(creste_realtime)
 
 message(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
@@ -96,13 +96,13 @@ rosbuild_gensrv()
 # Build executables
 # In rosbuild, we typically use the macro: rosbuild_add_executable
 #-----------------------------------------------------------------------------
-rosbuild_add_executable(lsmap_node
+rosbuild_add_executable(creste_node
   src/lsmap_node_main.cc
   src/lsmap_node.cc
 )
 
 # Link libraries for lsmap_node
-target_link_libraries(lsmap_node
+target_link_libraries(creste_node
   ${ros_libs}
   ${OpenCV_LIBS}
   ${PCL_LIBRARIES}
