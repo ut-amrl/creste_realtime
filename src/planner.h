@@ -13,6 +13,7 @@
 #include "utils.h"
 #include "yaml-cpp/yaml.h"
 
+using math_util::Clamp;
 using math_util::Sq;
 namespace lsmap {
 
@@ -179,6 +180,12 @@ class CarrotPlanner {
     start_node->h = heuristic(start_node, goal_node);
     start_node->f = start_node->g + start_node->h;
 
+    // Clamp goal to closest valid point
+    goal_node->x = Clamp(goal_node->x, -map_params_.height / 2.0f,
+                         map_params_.height / 2.0f);
+    goal_node->y = Clamp(goal_node->y, -map_params_.width / 2.0f,
+                         map_params_.width / 2.0f);
+
     // Check if start is out of bounds
     if (start_node->x < -map_params_.height / 2.0f ||
         start_node->x > map_params_.height / 2.0f ||
@@ -190,10 +197,21 @@ class CarrotPlanner {
 
     open_heap.push(start_node);
 
+    // Initialize closest node for timeout
+    float best_distance_so_far = distance(start_node, goal_node);
+    Node* best_node_so_far = start_node;  // Track best node so far
+
     int timeout_count = 0;
     while (!open_heap.empty()) {
       Node* curr_node = open_heap.top();
       open_heap.pop();
+
+      // Update the closest node if the current node is nearer to the goal
+      float curr_distance = distance(curr_node, goal_node);
+      if (curr_distance < best_distance_so_far) {
+        best_distance_so_far = curr_distance;
+        best_node_so_far = curr_node;
+      }
 
       if (goal_reached(curr_node, goal_node)) {
         return reconstruct_path(curr_node);
@@ -209,7 +227,7 @@ class CarrotPlanner {
       timeout_count++;
       if (timeout_count > planner_params_.max_iters) {
         std::cout << "Astar planning timeout\n";
-        return {};
+        return reconstruct_path(best_node_so_far);
       }
 
       // Expand neighbors
@@ -241,7 +259,7 @@ class CarrotPlanner {
     }
 
     std::cout << "Exits without finding a path\n";
-    return {};
+    return reconstruct_path(best_node_so_far);
   }
 
   void printExploredNodes() {

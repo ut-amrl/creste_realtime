@@ -9,14 +9,14 @@ map_params:
 planner_params:
   max_v: 1.0
   # max_w: 1.57079
-  max_w: 0.75
+  max_w: 0.3
   # max_w: 0.0 
   max_dv: 0.2
   # max_dw: 0.78539
-  max_dw: 0.3
+  max_dw: 0.15
   partitions: 11
   dt: 1.0
-  max_iters: 5000
+  max_iters: 10000
   # Set max time to 0.0 to not use 
   max_time: 0.0
   goal_tolerance: 0.5
