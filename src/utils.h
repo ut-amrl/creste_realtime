@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UTILS_H
+#define UTILS_H
 #include <ros/ros.h>
 #include <torch/torch.h>  // <-- or #include <ATen/ATen.h>
 
@@ -10,8 +11,43 @@
 #include <unordered_map>
 #include <vector>
 
-// If you use 'cv::Mat' or 'std::unordered_map', include the needed headers:
-#include <vector>
+struct CalibInfo {
+  int rows;
+  int cols;
+  std::vector<float> data;
+};
+
+struct PlannerParams {
+  float max_v;
+  float max_w;
+  float max_dv;
+  float max_dw;
+  int partitions;
+  float dt;
+};
+
+struct MapParams {
+  float height;     // cells
+  float width;      // cells
+  float resolution; // meters/cell
+  float origin_x;   // cells
+  float origin_y;   // cells
+};
+
+struct Pose2D {
+  float x;
+  float y;
+  float theta;
+
+  Pose2D() : x(0.0f), y(0.0f), theta(0.0f) {}
+  Pose2D(float x, float y, float theta) : x(x), y(y), theta(theta) {}
+};
+
+struct Path {
+  std::vector<Pose2D> poses;
+};
+
+void TensorToVec2D(const torch::Tensor& tensor, std::vector<std::vector<float>>& vec);
 
 inline torch::Tensor createTrapezoidalFovMask(int H, int W,
                                               float fovTopAngle = 70,
@@ -83,3 +119,5 @@ void PublishCompletedDepth(
     const std::string& key, ros::Publisher& depth_pub);
 
 }  // namespace lsmap
+
+#endif // UTILS_H

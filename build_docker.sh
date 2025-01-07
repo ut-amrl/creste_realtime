@@ -1,2 +1,2 @@
 #!/bin/bash
-docker build -t lsmap_realtime -f Dockerfile .
+docker build -t creste_realtime -f Dockerfile .

@@ -14,6 +14,8 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Path.h>
 #include <std_msgs/Float32MultiArray.h>
 
 // PCL
@@ -32,18 +34,13 @@
 #include <vector>
 
 // Local headers
+#include "planner.h"
 #include "lsmap.h"
 #include "utils.h"
 
 using amrl_msgs::CarrotPlannerSrv;
 
 namespace lsmap {
-
-struct CalibInfo {
-  int rows;
-  int cols;
-  std::vector<float> data;
-};
 
 class LSMapNode {
  public:
@@ -59,23 +56,25 @@ class LSMapNode {
   void CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg);
 
   // === Helper functions ===
-  void LoadCalibInfo(const YAML::Node& config);
-  void save_depth_image(const cv::Mat& depthMatrix,
-                        const std::string& filename);
-  //   void tensorToGridMap(const std::unordered_map<std::string,
-  //   torch::Tensor>& output,
-  //                        grid_map::GridMap& map);
+  bool CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
+                             CarrotPlannerSrv::Response& res);
+  void LoadCalibParams(const YAML::Node& config);
+
   bool is_cell_visible(const int i, const int j, const int grid_height,
                        const int grid_width);
 
   // Projection function for combining point cloud & image
-  std::tuple<torch::Tensor, torch::Tensor> projection(
+  std::tuple<torch::Tensor, torch::Tensor> ProcessInputs(
       const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
       const sensor_msgs::ImageConstPtr& image_msg);
 
  private:
   // === ROS 1 NodeHandle ===
   ros::NodeHandle nh_;
+
+  // === Services ===
+  ros::ServiceServer carrot_planner_service = nh_.advertiseService(
+      "/navigation/carrot_planner", &LSMapNode::CarrotPlannerCallback, this);
 
   // === Subscribers ===
   ros::Subscriber pointcloud_subscriber_;
@@ -106,8 +105,11 @@ class LSMapNode {
   // === Misc ===
   std::shared_ptr<lsmap::LSMapModel> model_;
   std::mutex model_outputs_mutex_;
-  std::unordered_map<std::string, torch::Tensor> model_outputs_;
+  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs_;
   torch::Tensor fov_mask_;
+
+  // === Planners ===
+  std::shared_ptr<CarrotPlanner> carrot_planner_;
 };
 }  // namespace lsmap
 

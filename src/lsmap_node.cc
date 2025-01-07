@@ -3,7 +3,7 @@
 namespace lsmap {
 
 LSMapNode::LSMapNode(const std::string& config_path)
-    : nh_("~"), model_(nullptr) {
+    : nh_("~"), model_(nullptr), model_outputs_(nullptr), carrot_planner_(nullptr) {
   ROS_INFO("LSMapNode initialized.");
 
   YAML::Node config;
@@ -17,16 +17,16 @@ LSMapNode::LSMapNode(const std::string& config_path)
     return;
   }
 
-  if (!config["model_path"] || !config["image_topic"] ||
-      !config["pointcloud_topic"] || !config["camera_info_topic"] ||
-      !config["output_topics"]) {
+  ROS_INFO("--- Loading parameters ---");
+  if (!config["model_params"] || !config["planner_params"] ||
+    !config["input_topics"] || !config["output_topics"]) {
     ROS_ERROR("Missing required fields in config file.");
     return;
   }
-  std::string model_path = config["model_path"].as<std::string>();
-  std::string image_topic = config["image_topic"].as<std::string>();
-  std::string pointcloud_topic = config["pointcloud_topic"].as<std::string>();
-  std::string camera_info_topic = config["camera_info_topic"].as<std::string>();
+  std::string model_path = config["model_params"]["weights_path"].as<std::string>();
+  std::string image_topic = config["input_topics"]["image"].as<std::string>();
+  std::string pointcloud_topic = config["input_topics"]["pointcloud"].as<std::string>();
+  std::string camera_info_topic = config["input_topics"]["camera_info"].as<std::string>();
   std::string output_depth_topic =
       config["output_topics"]["depth"].as<std::string>();
   std::string output_traversability_topic =
@@ -34,11 +34,13 @@ LSMapNode::LSMapNode(const std::string& config_path)
 
   // Load Model
   model_ = std::make_shared<LSMapModel>(model_path);
-
   // Load LiDAR Camera extrinsics
-  LoadCalibInfo(config);
+  LoadCalibParams(config);
+  carrot_planner_ = std::make_shared<CarrotPlanner>(config); // Initialize CarrotPlanner
+
 
   // Subscription to PointCloud2 topic
+  ROS_INFO("--- Subscribing to topics ---");
   pointcloud_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>(
       pointcloud_topic, 10, &LSMapNode::PointCloudCallback, this);
 
@@ -66,7 +68,7 @@ LSMapNode::LSMapNode(const std::string& config_path)
   has_rectification_ = false;
 }
 
-void LSMapNode::LoadCalibInfo(const YAML::Node& config) {
+void LSMapNode::LoadCalibParams(const YAML::Node& config) {
   {
     const auto& node = config["pt2pix"];
     if (!node) {
@@ -93,13 +95,6 @@ void LSMapNode::LoadCalibInfo(const YAML::Node& config) {
     pix2pt_.cols = node["cols"].as<int>();
     pix2pt_.data = node["data"].as<std::vector<float>>();
   }
-
-  // Example: print them out
-  std::cout << "pt2pix: rows=" << pt2pix_.rows << ", cols=" << pt2pix_.cols
-            << ", data.size()=" << pt2pix_.data.size() << "\n";
-
-  std::cout << "pix2pt: rows=" << pix2pt_.rows << ", cols=" << pix2pt_.cols
-            << ", data.size()=" << pix2pt_.data.size() << "\n";
 }
 
 void LSMapNode::PointCloudCallback(
@@ -148,7 +143,7 @@ void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
   }
 }
 
-std::tuple<torch::Tensor, torch::Tensor> LSMapNode::projection(
+std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
     const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     const sensor_msgs::ImageConstPtr& image_msg) {
   // Convert ROS PointCloud2 message to PCL point cloud
@@ -253,6 +248,45 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::projection(
   return std::make_tuple(rgbd_tensor, pixel2point_tensor);
 }
 
+bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
+                             CarrotPlannerSrv::Response& res) {
+  const auto& carrot = req.carrot;    
+
+  // Plan path to carrot
+  if (model_outputs_ == nullptr) {
+    ROS_ERROR("Model outputs not available.");
+    res.success.data = false;
+    return true;
+  }
+
+  // Get the model outputs
+  const auto& traversability_map = model_outputs_->at("traversability");
+  std::vector<std::vector<float>> traversability_vec;
+  TensorToVec2D(traversability_map.squeeze(), traversability_vec);
+  
+  Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
+  const auto &path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
+
+  // Copy path to response
+  nav_msgs::Path path_ros;
+  path_ros.header.frame_id = "base_link";
+  path_ros.header.stamp = ros::Time::now();
+  for (const auto& path_pose : path.poses) {
+    geometry_msgs::PoseStamped posestamped;
+    posestamped.pose.position.x = path_pose.x;
+    posestamped.pose.position.y = path_pose.y;
+    posestamped.pose.position.z = 0.0;
+    posestamped.pose.orientation.w = std::cos(path_pose.theta / 2.0);
+    posestamped.pose.orientation.z = std::sin(path_pose.theta / 2.0);
+    res.path.poses.push_back(posestamped);
+  }
+  res.success.data = true;
+
+  ROS_INFO("Planned path with %lu waypoints.", path.poses.size());
+
+  return true;
+}
+
 void LSMapNode::run() {
   sensor_msgs::PointCloud2ConstPtr cloud_msg;
   sensor_msgs::ImageConstPtr image_msg;
@@ -290,7 +324,7 @@ void LSMapNode::run() {
   // 1) Project
   ros::Time start = ros::Time::now();
   ROS_INFO("Projecting point cloud to image space...");
-  auto inputs = projection(cloud_msg, image_msg);
+  auto inputs = ProcessInputs(cloud_msg, image_msg);
   ros::Time end = ros::Time::now();
   ROS_INFO("Projection time: %f seconds", (end - start).toSec());
 
@@ -320,7 +354,8 @@ void LSMapNode::run() {
   // Store the model outputs
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
-    model_outputs_ = tensor_map;
+    model_outputs_ = std::make_shared<std::unordered_map<std::string, torch::Tensor>>(
+        tensor_map);
   }
 
   // Publish model predictions

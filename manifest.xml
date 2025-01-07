@@ -13,6 +13,7 @@
   <depend package="nav_msgs"/>
   <depend package="geometry_msgs"/>
   <depend package="sensor_msgs"/>
+  <depend package="nav_msgs"/>
   <depend package="roscpp"/>
   <depend package="rosbag"/>
   <depend package="tf"/>

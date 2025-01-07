@@ -4,6 +4,26 @@
 
 #include "sensor_msgs/Image.h"
 
+void TensorToVec2D(const torch::Tensor& tensor, std::vector<std::vector<float>>& vec) {
+  // Ensure the tensor is on the CPU
+  torch::Tensor tensor_cpu = tensor.to(torch::kCPU).squeeze(); // Remove the batch dimension
+
+  // Get the number of rows and columns
+  int rows = tensor_cpu.size(0);
+  int cols = tensor_cpu.size(1);
+
+  // Resize the vector
+  vec.resize(rows, std::vector<float>(cols));
+
+  // Copy the data
+  auto accessor = tensor_cpu.accessor<float, 2>();
+  for (int i = 0; i < rows; ++i) {
+    for (int j = 0; j < cols; ++j) {
+      vec[i][j] = accessor[i][j];
+    }
+  }
+}
+
 namespace lsmap {
 std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
                                               int components) {

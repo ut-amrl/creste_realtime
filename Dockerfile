@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libopencv-dev \
+    python-is-python3 \
     python3-pip \
     software-properties-common \
     tmux \
@@ -42,10 +43,6 @@ RUN apt-get install -y --no-install-recommends \
     ros-noetic-sensor-msgs \
     ros-noetic-std-msgs \
     ros-noetic-pcl-conversions \
-    # ros-noetic-grid-map-core \
-    # ros-noetic-grid-map-ros \
-    # ros-noetic-grid-map-cv \
-    # ros-noetic-grid-map-msgs \
     # for rviz, you could also add ros-noetic-rviz if desired
     && rm -rf /var/lib/apt/lists/*
 
@@ -82,7 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev &
 # 5) Source ROS in .bashrc
 #-----------------------------------------------------------
 RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
-RUN echo "export ROS_PACKAGE_PATH=/home/creste_realtime/home/amrl_msgs:\$ROS_PACKAGE_PATH" >> ~/.bashrc
+RUN echo "export ROS_PACKAGE_PATH=/home/creste_realtime:/home/amrl_msgs:\$ROS_PACKAGE_PATH" >> ~/.bashrc
 
 # Note: In ROS 1, you typically use catkin_make or catkin tools
 # We won't build here by default, because you may want to build interactively.
