@@ -10,12 +10,12 @@
 
 // ROS 1 headers
 #include <cv_bridge/cv_bridge.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Path.h>
 #include <ros/ros.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <nav_msgs/Path.h>
 #include <std_msgs/Float32MultiArray.h>
 
 // PCL
@@ -23,8 +23,8 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 
-#include "yaml-cpp/yaml.h"
 #include "glog/logging.h"
+#include "yaml-cpp/yaml.h"
 
 // STL / OpenCV
 #include <mutex>
@@ -35,10 +35,10 @@
 #include <vector>
 
 // Local headers
-#include "planner.h"
 #include "lsmap.h"
-#include "utils.h"
+#include "planner.h"
 #include "shared/util/timer.h"
+#include "utils.h"
 
 using amrl_msgs::CarrotPlannerSrv;
 
@@ -50,6 +50,7 @@ class LSMapNode {
 
   /// \brief Main processing function called periodically in main()
   void run();
+  void inference();
 
  private:
   // === Callbacks ===
@@ -75,8 +76,7 @@ class LSMapNode {
   ros::NodeHandle nh_;
 
   // === Services ===
-  ros::ServiceServer carrot_planner_service = nh_.advertiseService(
-      "/navigation/carrot_planner", &LSMapNode::CarrotPlannerCallback, this);
+  ros::ServiceServer carrot_planner_service;
 
   // === Subscribers ===
   ros::Subscriber pointcloud_subscriber_;
@@ -105,9 +105,15 @@ class LSMapNode {
   std::mutex queue_mutex_;
 
   // === Misc ===
+  sensor_msgs::PointCloud2ConstPtr latest_cloud_msg_;
+  sensor_msgs::ImageConstPtr latest_image_msg_;
+  std::mutex latest_msg_mutex_;
+
+  // === Model Inference ===
   std::shared_ptr<lsmap::LSMapModel> model_;
   std::mutex model_outputs_mutex_;
-  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs_;
+  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
+      model_outputs_;
   torch::Tensor fov_mask_;
 
   // === Planners ===

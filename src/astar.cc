@@ -1,27 +1,23 @@
-#ifndef PLANNER_H_
-#define PLANNER_H_
-
-#include <torch/torch.h>
-
+#include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <iostream>
-#include <opencv2/opencv.hpp>
+#include <limits>
 #include <queue>
-#include <unordered_set>
+#include <set>
+#include <vector>
 
-#include "shared/math/math_util.h"
-#include "utils.h"
-#include "yaml-cpp/yaml.h"
-
-using math_util::Sq;
-namespace lsmap {
-
+// A simple struct to hold path data if needed
 struct PathPoint {
   float x, y, theta;
   float v, w;
   int t_idx;
 };
 
+/**
+ * Bresenham line drawing from (x0,y0) to (x1,y1).
+ * Returns a list of (x,y) cells that the line passes through.
+ */
 static std::vector<std::pair<int, int>> bresenham(int x0, int y0, int x1,
                                                   int y1) {
   std::vector<std::pair<int, int>> points;
@@ -104,75 +100,85 @@ struct NodeCompare {
   }
 };
 
-class CarrotPlanner {
+/**
+ * AStarPlanner class
+ */
+class AStarPlanner {
  public:
-  CarrotPlanner(const YAML::Node& config) {
-    LoadMapParams(config);
-    LoadPlannerParams(config);
-    TensorToVec2D(
-        createTrapezoidalFovMask(map_params_.map_height, map_params_.map_width)
-            .to(torch::kFloat32),
-        fov_mask_);
-  }
+  // Configuration / parameters
+  std::vector<std::vector<float>> cost_map_;
+  float cost_weight_;
+  std::vector<float> map_size_;  // e.g. [25.6, 25.6]
+  std::vector<float> map_res_;   // e.g. [0.1, 0.1]
+  std::vector<int> grid_size_;   // e.g. [256, 256]
 
-  void LoadMapParams(const YAML::Node& config) {
-    const auto& node = config["map_params"];
-    map_params_.resolution = node["resolution"].as<float>();
-    map_params_.width = node["width"].as<float>();
-    map_params_.height = node["height"].as<float>();
-    map_params_.origin_x = node["origin_x"].as<float>();
-    map_params_.origin_y = node["origin_y"].as<float>();
-    map_params_.map_width = map_params_.width / map_params_.resolution;
-    map_params_.map_height = map_params_.height / map_params_.resolution;
-  }
+  float max_v_;
+  float max_w_;
+  float max_dv_;
+  float max_dw_;
+  int partitions_;
 
-  void LoadPlannerParams(const YAML::Node& config) {
-    const auto& node = config["planner_params"];
-    planner_params_.max_v = node["max_v"].as<float>();
-    planner_params_.max_w = node["max_w"].as<float>();
-    planner_params_.max_dv = node["max_dv"].as<float>();
-    planner_params_.max_dw = node["max_dw"].as<float>();
-    planner_params_.partitions = node["partitions"].as<int>();
-    planner_params_.dt = node["dt"].as<float>();
-    planner_params_.max_iters = node["max_iters"].as<int>();
-    planner_params_.max_time = node["max_time"].as<float>();
-    planner_params_.goal_tolerance = node["goal_tolerance"].as<float>();
-    planner_params_.cost_weight = node["cost_weight"].as<float>();
+  std::vector<float> v_range_;
+  std::vector<float> w_range_;
+  float planning_dt_;
 
-    // Precompute valid v and w ranges
-    v_range_ = linspace(-planner_params_.max_v, planner_params_.max_v,
-                        planner_params_.partitions);
-    w_range_ = linspace(-planner_params_.max_w, planner_params_.max_w,
-                        planner_params_.partitions);
+  float heuristic_multiplier_;
+  float linear_acc_weight_mean_;
+  float angular_acc_weight_mean_;
+  bool random_motion_cost_;
+  float heuristic_annealing_;
+  float heuristic_direction_weight_;
 
-    // Print the valid ranges
-    std::cout << "Valid v range: ";
-    for (const auto& v : v_range_) {
-      std::cout << v << " ";
-    }
-    std::cout << std::endl;
+  // For debugging / visualization
+  std::set<std::tuple<int, int, int>> closed_set_;
 
-    std::cout << "Valid w range: ";
-    for (const auto& w : w_range_) {
-      std::cout << w << " ";
-    }
-    std::cout << std::endl;
+  AStarPlanner(const std::vector<std::vector<float>>& cost_map,
+               float cost_weight, const std::vector<float>& map_size,
+               const std::vector<float>& map_res, float max_v, float max_w,
+               float max_dv, float max_dw, int partitions, float planning_dt,
+               float heuristic_multiplier, float linear_acc_weight,
+               float angular_acc_weight, bool random_motion_cost = false,
+               float heuristic_annealing = 1.0f,
+               float heuristic_direction_weight = 1.0f) {
+    cost_map_ = cost_map;
+    cost_weight_ = cost_weight;
+    map_size_ = map_size;
+    map_res_ = map_res;
+    max_v_ = max_v;
+    max_w_ = max_w;
+    max_dv_ = max_dv;
+    max_dw_ = max_dw;
+    partitions_ = partitions;
+    planning_dt_ = planning_dt;
+    heuristic_multiplier_ = heuristic_multiplier;
+    linear_acc_weight_mean_ = linear_acc_weight;
+    angular_acc_weight_mean_ = angular_acc_weight;
+    random_motion_cost_ = random_motion_cost;
+    heuristic_annealing_ = heuristic_annealing;
+    heuristic_direction_weight_ = heuristic_direction_weight;
+
+    // Compute grid_size
+    // e.g. if map_size_ = [25.6, 25.6], map_res_ = [0.1, 0.1], then grid_size_
+    // = [256, 256]
+    int gx = (int)(map_size_[0] / map_res_[0]);
+    int gy = (int)(map_size_[1] / map_res_[1]);
+    grid_size_ = {gx, gy};
+
+    // Create velocity & angular velocity ranges
+    v_range_ = linspace(-max_v_, max_v_, partitions_);
+    w_range_ = linspace(-max_w_, max_w_, partitions_);
   }
 
   /**
    * Plan a path from start_node to goal_node using A*.
    */
-  std::vector<PathPoint> PlanPath(
-      const std::vector<std::vector<float>>& traversability_map,
-      const Pose2D& carrot) {
+  std::vector<PathPoint> plan(Node* start_node, Node* goal_node,
+                              int max_time_idx, float goal_radius,
+                              int max_expand_node_num) {
     // Initialize
     std::priority_queue<Node*, std::vector<Node*>, NodeCompare> open_heap;
     std::set<std::tuple<int, int, int>> closed_set;  // for visited states
     closed_set_.clear();                             // for debugging
-    traversability_map_ = traversability_map;        // for path checking
-
-    Node* start_node = new Node(0.5f, 0.0f, 0.0f, 0, 0.2f, 0.0f);
-    Node* goal_node = new Node(carrot.x, carrot.y, 0.0f, 0, 0.0f, 0.0f);
 
     // Initialize start
     start_node->g = 0.0f;
@@ -180,10 +186,10 @@ class CarrotPlanner {
     start_node->f = start_node->g + start_node->h;
 
     // Check if start is out of bounds
-    if (start_node->x < -map_params_.height / 2.0f ||
-        start_node->x > map_params_.height / 2.0f ||
-        start_node->y < -map_params_.width / 2.0f ||
-        start_node->y > map_params_.width / 2.0f) {
+    if (start_node->x < -map_size_[0] / 2.0f ||
+        start_node->x > map_size_[0] / 2.0f ||
+        start_node->y < -map_size_[1] / 2.0f ||
+        start_node->y > map_size_[1] / 2.0f) {
       std::cout << "Start node out of bounds\n";
       return {};
     }
@@ -195,7 +201,7 @@ class CarrotPlanner {
       Node* curr_node = open_heap.top();
       open_heap.pop();
 
-      if (goal_reached(curr_node, goal_node)) {
+      if (goal_reached(curr_node, goal_node, goal_radius)) {
         return reconstruct_path(curr_node);
       }
 
@@ -207,18 +213,17 @@ class CarrotPlanner {
       add_to_close_set(closed_set, curr_node);
 
       timeout_count++;
-      if (timeout_count > planner_params_.max_iters) {
+      if (timeout_count > max_expand_node_num) {
         std::cout << "Astar planning timeout\n";
         return {};
       }
 
       // Expand neighbors
-      std::vector<Node*> neighbors =
-          get_neighbors(curr_node, planner_params_.max_time);
+      std::vector<Node*> neighbors = get_neighbors(curr_node, max_time_idx);
       for (Node* neighbor_node : neighbors) {
-        if (goal_reached(neighbor_node, goal_node)) {
-          // Return path from neighbor
+        if (goal_reached(neighbor_node, goal_node, goal_radius)) {
           neighbor_node->parent = curr_node;
+          // Return path from neighbor
           return reconstruct_path(neighbor_node);
         }
 
@@ -229,7 +234,7 @@ class CarrotPlanner {
 
         neighbor_node->parent = curr_node;
         neighbor_node->depth = curr_node->depth + 1;
-        neighbor_node->weight = curr_node->weight;
+        neighbor_node->weight = curr_node->weight * heuristic_annealing_;
 
         // compute cost
         neighbor_node->g = compute_g_cost(curr_node, neighbor_node);
@@ -244,64 +249,7 @@ class CarrotPlanner {
     return {};
   }
 
-  void printExploredNodes() {
-    // We'll use map_params_.map_height as rows, map_params_.map_width as cols
-    // so image(row, col) => image(xCell, yCell).
-    int rows = static_cast<int>(map_params_.map_height);
-    int cols = static_cast<int>(map_params_.map_width);
-
-    // Create a single-channel image with black background
-    cv::Mat visitedImg(rows, cols, CV_8UC1, cv::Scalar(0));
-
-    // Mark visited cells in white
-    for (auto& key : closed_set_) {
-      // key = (cell_x, cell_y, t_idx)
-      int cell_x = std::get<0>(key);
-      int cell_y = std::get<1>(key);
-
-      // Safety check so we don't go out of bounds
-      if (cell_x >= 0 && cell_x < rows && cell_y >= 0 && cell_y < cols) {
-        visitedImg.at<uchar>(cell_x, cell_y) = 255;  // white pixel
-      }
-    }
-
-    // Save the image
-    cv::imwrite("explored_nodes.png", visitedImg);
-  }
-
-  void printPath(const std::vector<PathPoint>& path) {
-    int rows = static_cast<int>(map_params_.map_height);
-    int cols = static_cast<int>(map_params_.map_width);
-
-    // Create a single-channel image with black background
-    cv::Mat pathImg(rows, cols, CV_8UC1, cv::Scalar(0));
-
-    // Mark path cells in white
-    for (const auto& pt : path) {
-      // Convert (x, y) to cell coordinates
-      auto [cell_x, cell_y] = to_cell(pt.x, pt.y);
-
-      // Safety check
-      if (cell_x >= 0 && cell_x < rows && cell_y >= 0 && cell_y < cols) {
-        pathImg.at<uchar>(cell_x, cell_y) = 255;  // white pixel for path
-      }
-    }
-
-    // Save the image
-    cv::imwrite("reconstructed_path.png", pathImg);
-  }
-
  private:
-  MapParams map_params_;
-  PlannerParams planner_params_;
-
-  // Precompute a list of values for v and w
-  std::vector<float> v_range_;
-  std::vector<float> w_range_;
-  std::set<std::tuple<int, int, int>> closed_set_;
-  std::vector<std::vector<float>> traversability_map_;
-  std::vector<std::vector<float>> fov_mask_;
-
   /**
    * Generate a linearly spaced vector from start to end with 'n' points.
    */
@@ -344,10 +292,8 @@ class CarrotPlanner {
    * grid_size[1]//2)
    */
   std::pair<int, int> to_cell(float x, float y) {
-    int cx =
-        (int)(-x / map_params_.resolution + (map_params_.map_height / 2.0f));
-    int cy =
-        (int)(-y / map_params_.resolution + (map_params_.map_width / 2.0f));
+    int cx = (int)(-x / map_res_[0] + (grid_size_[0] / 2.0f));
+    int cy = (int)(-y / map_res_[1] + (grid_size_[1] / 2.0f));
     return {cx, cy};
   }
 
@@ -355,16 +301,16 @@ class CarrotPlanner {
    * Transform from grid (i,j) -> world coordinates (x,y).
    */
   std::pair<float, float> to_coord(int i, int j) {
-    float x = -(i - (map_params_.map_height / 2.0f)) * map_params_.resolution;
-    float y = -(j - (map_params_.map_width / 2.0f)) * map_params_.resolution;
+    float x = -(i - (grid_size_[0] / 2.0f)) * map_res_[0];
+    float y = -(j - (grid_size_[1] / 2.0f)) * map_res_[1];
     return {x, y};
   }
 
   /**
    * Check if current node is within goal_radius of goal_node
    */
-  bool goal_reached(Node* curr_node, Node* goal_node) {
-    return (distance(curr_node, goal_node) < planner_params_.goal_tolerance);
+  bool goal_reached(Node* curr_node, Node* goal_node, float goal_radius) {
+    return (distance(curr_node, goal_node) < goal_radius);
   }
 
   /**
@@ -442,9 +388,9 @@ class CarrotPlanner {
 
     // Just an assertion that we are in bounds
     // (Adjust or remove if you want less strict checks)
-    assert(x2 >= -map_params_.height / 2.0f && x2 < map_params_.height / 2.0f &&
+    assert(x2 >= -map_size_[0] / 2.0f && x2 < map_size_[0] / 2.0f &&
            "Neighbor node x out of bounds");
-    assert(y2 >= -map_params_.width / 2.0f && y2 < map_params_.width / 2.0f &&
+    assert(y2 >= -map_size_[1] / 2.0f && y2 < map_size_[1] / 2.0f &&
            "Neighbor node y out of bounds");
 
     // Collect cells between the two nodes
@@ -461,13 +407,13 @@ class CarrotPlanner {
       int i = c.first;
       int j = c.second;
       // clamp i,j
-      i = std::max(0, std::min(i, map_params_.map_height - 1));
-      j = std::max(0, std::min(j, map_params_.map_width - 1));
+      i = std::max(0, std::min(i, grid_size_[0] - 1));
+      j = std::max(0, std::min(j, grid_size_[1] - 1));
 
       // cost map access => cost_map_[i][j],
       // then sum using exponent, etc.
-      float cval = traversability_map_[i][j];
-      total_cost += std::exp(planner_params_.cost_weight * cval);
+      float cval = cost_map_[i][j];
+      total_cost += std::exp(cost_weight_ * cval);
     }
     return total_cost;
   }
@@ -478,15 +424,14 @@ class CarrotPlanner {
    */
   void forward_motion_rollout(Node* node, float v, float w, float& x_new,
                               float& y_new, float& theta_new) {
-    float dt = planner_params_.dt;
     if (std::fabs(w) > 1e-6) {
-      theta_new = node->theta + w * dt;
+      theta_new = node->theta + w * planning_dt_;
       x_new = node->x + v / w * (std::sin(theta_new) - std::sin(node->theta));
       y_new = node->y - v / w * (std::cos(theta_new) - std::cos(node->theta));
     } else {
       theta_new = node->theta;
-      x_new = node->x + v * std::cos(node->theta) * dt;
-      y_new = node->y + v * std::sin(node->theta) * dt;
+      x_new = node->x + v * std::cos(node->theta) * planning_dt_;
+      y_new = node->y + v * std::sin(node->theta) * planning_dt_;
     }
   }
 
@@ -496,9 +441,9 @@ class CarrotPlanner {
    */
   std::pair<std::vector<float>, std::vector<float>> get_valid_vw(
       float current_v, float current_w) {
-    float min_v = std::max(0.1f, current_v - planner_params_.max_dv);
-    float max_v =
-        std::min(planner_params_.max_v, current_v + planner_params_.max_dv);
+    // Example from python: only positive velocity
+    float min_v = std::max(0.1f, current_v - max_dv_);
+    float max_v = std::min(max_v_, current_v + max_dv_);
 
     std::vector<float> valid_v;
     for (auto v : v_range_) {
@@ -507,10 +452,8 @@ class CarrotPlanner {
       }
     }
 
-    float min_w =
-        std::max(-planner_params_.max_w, current_w - planner_params_.max_dw);
-    float max_w =
-        std::min(planner_params_.max_w, current_w + planner_params_.max_dw);
+    float min_w = std::max(-max_w_, current_w - max_dw_);
+    float max_w = std::min(max_w_, current_w + max_dw_);
 
     std::vector<float> valid_w;
     for (auto w : w_range_) {
@@ -530,16 +473,17 @@ class CarrotPlanner {
     auto valid_v = vw.first;
     auto valid_w = vw.second;
 
+    // float curr_x = node->x;
+    // float curr_y = node->y;
+
     for (float v : valid_v) {
       for (float w : valid_w) {
         float x_new, y_new, theta_new;
         forward_motion_rollout(node, v, w, x_new, y_new, theta_new);
 
         // Check bounds
-        if (x_new <= -map_params_.height / 2.0f ||
-            x_new >= map_params_.height / 2.0f ||
-            y_new <= -map_params_.width / 2.0f ||
-            y_new >= map_params_.width / 2.0f) {
+        if (x_new <= -map_size_[0] / 2.0f || x_new >= map_size_[0] / 2.0f ||
+            y_new <= -map_size_[1] / 2.0f || y_new >= map_size_[1] / 2.0f) {
           continue;
         }
         int t_idx = std::min(node->t_idx + 1, max_time_idx);
@@ -547,10 +491,7 @@ class CarrotPlanner {
         // Collisions can be checked here if desired
         // e.g. check cost_map_ or do a bresenham line from curr_x,curr_y to
         // x_new,y_new
-        int curr_x, curr_y;
-        std::tie(curr_x, curr_y) = to_cell(node->x, node->y);
-        bool collided = fabs(fov_mask_[curr_x][curr_y]) < 1e-6;
-
+        bool collided = false;
         if (!collided) {
           Node* nbr = new Node(x_new, y_new, theta_new, t_idx, v, w);
           neighbors.push_back(nbr);
@@ -561,6 +502,69 @@ class CarrotPlanner {
   }
 };
 
-}  // namespace lsmap
+// -----------------------------------------------------------------------------
+// Example main() usage
+// -----------------------------------------------------------------------------
+int main() {
+  // Example usage:
+  // Suppose your cost_map is 256x256 (for a 25.6 x 25.6 area at 0.1
+  // resolution). We'll just fill it with zeros for demonstration.
+  int rows = 256;
+  int cols = 256;
+  std::vector<std::vector<float>> cost_map(rows,
+                                           std::vector<float>(cols, 0.0f));
 
-#endif  // PLANNER_H_
+  // Example obstacles: set a rectangle with cost
+  for (int i = 100; i < 120; i++) {
+    for (int j = 100; j < 120; j++) {
+      cost_map[i][j] = 1.0f;  // an obstacle region
+    }
+  }
+
+  // Construct AStarPlanner
+  std::vector<float> map_size = {25.6f, 25.6f};
+  std::vector<float> map_res = {0.1f, 0.1f};
+  float cost_weight = 2.0f;
+  float max_v = 1.0f;
+  float max_w = (float)M_PI / 2.0f;
+  float max_dv = 0.2f;
+  float max_dw = (float)M_PI / 4.0f;
+  int partitions = 11;
+  float planning_dt = 1.0f;
+  float heuristic_multiplier = 0.0f;
+  float linear_acc_weight = 0.0f;
+  float angular_acc_weight = 0.0f;
+  bool random_motion_cost = false;
+  float heuristic_annealing = 1.0f;
+
+  AStarPlanner planner(
+      cost_map, cost_weight, map_size, map_res, max_v, max_w, max_dv, max_dw,
+      partitions, planning_dt, heuristic_multiplier, linear_acc_weight,
+      angular_acc_weight, random_motion_cost, heuristic_annealing);
+
+  // Create start and goal nodes
+  Node* start_node = new Node(0.0f, 0.0f, 0.0f, 0, 0.2f, 0.0f);
+  Node* goal_node = new Node(10.14f, 3.51f, 0.21f, 0, 0.0f, 0.0f);
+
+  // Plan
+  int max_time_idx = 0;
+  float goal_radius = 0.5f;
+  int max_expand_node_num = 100000;
+  std::vector<PathPoint> path = planner.plan(
+      start_node, goal_node, max_time_idx, goal_radius, max_expand_node_num);
+  if (!path.empty()) {
+    std::cout << "Path found! Size=" << path.size() << "\n";
+    for (auto& p : path) {
+      std::cout << "(" << p.x << ", " << p.y << ", " << p.theta << ") v=" << p.v
+                << " w=" << p.w << " t=" << p.t_idx << "\n";
+    }
+  } else {
+    std::cout << "No path found.\n";
+  }
+
+  // Cleanup
+  delete start_node;
+  delete goal_node;
+
+  return 0;
+}

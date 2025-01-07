@@ -4,9 +4,11 @@
 
 #include "sensor_msgs/Image.h"
 
-void TensorToVec2D(const torch::Tensor& tensor, std::vector<std::vector<float>>& vec) {
+void TensorToVec2D(const torch::Tensor& tensor,
+                   std::vector<std::vector<float>>& vec) {
   // Ensure the tensor is on the CPU
-  torch::Tensor tensor_cpu = tensor.to(torch::kCPU).squeeze(); // Remove the batch dimension
+  torch::Tensor tensor_cpu =
+      tensor.to(torch::kCPU).squeeze();  // Remove the batch dimension
 
   // Get the number of rows and columns
   int rows = tensor_cpu.size(0);
@@ -25,6 +27,24 @@ void TensorToVec2D(const torch::Tensor& tensor, std::vector<std::vector<float>>&
 }
 
 namespace lsmap {
+
+std::vector<float> linspace(float start, float end, int num) {
+  std::vector<float> result;
+
+  if (num == 1) {
+    result.push_back(start);
+    return result;
+  }
+
+  float step = (end - start) / (num - 1);
+
+  for (int i = 0; i < num; ++i) {
+    result.push_back(start + i * step);
+  }
+
+  return result;
+}
+
 std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
                                               int components) {
   // Example PCA code. Logging replaced with ROS_INFO where needed.

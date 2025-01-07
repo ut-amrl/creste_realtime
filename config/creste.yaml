@@ -8,12 +8,19 @@ map_params:
   origin_y: 12.8
 planner_params:
   max_v: 1.0
-  max_w: 1.57079
+  # max_w: 1.57079
+  max_w: 0.75
+  # max_w: 0.0 
   max_dv: 0.2
-  max_dw: 0.78539
+  # max_dw: 0.78539
+  max_dw: 0.3
   partitions: 11
   dt: 1.0
-  max_iters: 50000
+  max_iters: 5000
+  # Set max time to 0.0 to not use 
+  max_time: 0.0
+  goal_tolerance: 0.5
+  cost_weight: 1.5
 input_topics:
   image: "/stereo/left/image_raw"
   pointcloud: "/ouster/points"

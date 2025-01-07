@@ -117,6 +117,10 @@ rosbuild_add_executable(publisher_node
   src/publisher_node_main.cc
 )
 
+rosbuild_add_executable(astar_test
+  src/astar.cc
+)
+
 target_link_libraries(publisher_node
   ${libs}
   ${OpenCV_LIBS}

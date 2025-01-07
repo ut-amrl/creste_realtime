@@ -3,7 +3,10 @@
 namespace lsmap {
 
 LSMapNode::LSMapNode(const std::string& config_path)
-    : nh_("~"), model_(nullptr), model_outputs_(nullptr), carrot_planner_(nullptr) {
+    : nh_("~"),
+      model_(nullptr),
+      model_outputs_(nullptr),
+      carrot_planner_(nullptr) {
   ROS_INFO("LSMapNode initialized.");
 
   YAML::Node config;
@@ -19,14 +22,17 @@ LSMapNode::LSMapNode(const std::string& config_path)
 
   ROS_INFO("--- Loading parameters ---");
   if (!config["model_params"] || !config["planner_params"] ||
-    !config["input_topics"] || !config["output_topics"]) {
+      !config["input_topics"] || !config["output_topics"]) {
     ROS_ERROR("Missing required fields in config file.");
     return;
   }
-  std::string model_path = config["model_params"]["weights_path"].as<std::string>();
+  std::string model_path =
+      config["model_params"]["weights_path"].as<std::string>();
   std::string image_topic = config["input_topics"]["image"].as<std::string>();
-  std::string pointcloud_topic = config["input_topics"]["pointcloud"].as<std::string>();
-  std::string camera_info_topic = config["input_topics"]["camera_info"].as<std::string>();
+  std::string pointcloud_topic =
+      config["input_topics"]["pointcloud"].as<std::string>();
+  std::string camera_info_topic =
+      config["input_topics"]["camera_info"].as<std::string>();
   std::string output_depth_topic =
       config["output_topics"]["depth"].as<std::string>();
   std::string output_traversability_topic =
@@ -36,8 +42,12 @@ LSMapNode::LSMapNode(const std::string& config_path)
   model_ = std::make_shared<LSMapModel>(model_path);
   // Load LiDAR Camera extrinsics
   LoadCalibParams(config);
-  carrot_planner_ = std::make_shared<CarrotPlanner>(config); // Initialize CarrotPlanner
+  carrot_planner_ =
+      std::make_shared<CarrotPlanner>(config);  // Initialize CarrotPlanner
 
+  // ServiceServers
+  carrot_planner_service = nh_.advertiseService(
+      "/navigation/carrot_planner", &LSMapNode::CarrotPlannerCallback, this);
 
   // Subscription to PointCloud2 topic
   ROS_INFO("--- Subscribing to topics ---");
@@ -100,7 +110,7 @@ void LSMapNode::LoadCalibParams(const YAML::Node& config) {
 void LSMapNode::PointCloudCallback(
     const sensor_msgs::PointCloud2ConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
-  ROS_INFO("Received PointCloud2 message");
+  // ROS_INFO("Received PointCloud2 message");
   cloud_queue_.push(msg);
 
   // Convert ROS PointCloud2 message to PCL point cloud
@@ -108,17 +118,17 @@ void LSMapNode::PointCloudCallback(
   pcl::fromROSMsg(*msg, pcl_cloud);
 
   // Example processing
-  ROS_INFO("PointCloud size: %lu", pcl_cloud.size());
+  // ROS_INFO("PointCloud size: %lu", pcl_cloud.size());
 }
 
 void LSMapNode::ImageCallback(const sensor_msgs::ImageConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
-  ROS_INFO("Received Image message");
+  // ROS_INFO("Received Image message");
   image_queue_.push(msg);
 }
 
 void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
-  ROS_INFO("Received CameraInfo message");
+  // ROS_INFO("Received CameraInfo message");
 
   camera_info_ = *msg;
 
@@ -137,7 +147,8 @@ void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
     Pd.convertTo(Pf, CV_32F);
 
     cv::initUndistortRectifyMap(Kf, Df, Rf, Pf, size, CV_32FC1, map1_, map2_);
-    ROS_INFO("Rectification maps computed (%d x %d).", size.width, size.height);
+    // ROS_INFO("Rectification maps computed (%d x %d).", size.width,
+    // size.height);
 
     has_rectification_ = true;
   }
@@ -249,44 +260,121 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
 }
 
 bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
-                             CarrotPlannerSrv::Response& res) {
-  const auto& carrot = req.carrot;    
+                                      CarrotPlannerSrv::Response& res) {
+  const auto& carrot = req.carrot;
 
-  // Plan path to carrot
+  // 1 Perform model inference
+  this->inference();
   if (model_outputs_ == nullptr) {
     ROS_ERROR("Model outputs not available.");
     res.success.data = false;
     return true;
   }
 
-  // Get the model outputs
   const auto& traversability_map = model_outputs_->at("traversability");
   std::vector<std::vector<float>> traversability_vec;
   TensorToVec2D(traversability_map.squeeze(), traversability_vec);
-  
-  // Time the time to plan the path
-  
-  Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
-  const auto &path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
 
-  // Copy path to response
+  // 2 Plan path to carrot
+
+  ros::Time start = ros::Time::now();
+  Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
+  auto path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
+  ros::Time end = ros::Time::now();
+  ROS_INFO("Path planning time: %f seconds", (end - start).toSec());
+  carrot_planner_->printExploredNodes();
+  carrot_planner_->printPath(path);
+
+  // 3 Populate response with path
   nav_msgs::Path path_ros;
   path_ros.header.frame_id = "base_link";
   path_ros.header.stamp = ros::Time::now();
-  for (const auto& path_pose : path.poses) {
+  for (const auto& path_point : path) {
     geometry_msgs::PoseStamped posestamped;
-    posestamped.pose.position.x = path_pose.x;
-    posestamped.pose.position.y = path_pose.y;
+    posestamped.pose.position.x = path_point.x;
+    posestamped.pose.position.y = path_point.y;
     posestamped.pose.position.z = 0.0;
-    posestamped.pose.orientation.w = std::cos(path_pose.theta / 2.0);
-    posestamped.pose.orientation.z = std::sin(path_pose.theta / 2.0);
+    posestamped.pose.orientation.w = std::cos(path_point.theta / 2.0);
+    posestamped.pose.orientation.z = std::sin(path_point.theta / 2.0);
     res.path.poses.push_back(posestamped);
   }
   res.success.data = true;
 
-  ROS_INFO("Planned path with %lu waypoints.", path.poses.size());
+  ROS_INFO("Planned path with %lu waypoints.", path.size());
 
   return true;
+}
+
+void LSMapNode::inference() {
+  sensor_msgs::PointCloud2ConstPtr cloud_msg;
+  sensor_msgs::ImageConstPtr image_msg;
+
+  {
+    std::lock_guard<std::mutex> lock(latest_msg_mutex_);
+    if (!latest_cloud_msg_ || !latest_image_msg_ || !has_rectification_) return;
+    cloud_msg = latest_cloud_msg_;
+    image_msg = latest_image_msg_;
+  }
+
+  // 1) Project
+  ros::Time start = ros::Time::now();
+  // ROS_INFO("Projecting point cloud to image space...");
+  auto inputs = ProcessInputs(cloud_msg, image_msg);
+  ros::Time end = ros::Time::now();
+  ROS_INFO("Projection time: %f seconds", (end - start).toSec());
+
+  // 2) Model Inference
+  start = ros::Time::now();
+  auto output = model_->forward(inputs);
+  end = ros::Time::now();
+  ROS_INFO("Model Inference time: %f seconds", (end - start).toSec());
+
+  // 3) Process the resulting map(s)
+  start = ros::Time::now();
+  std::unordered_map<std::string, torch::Tensor> tensor_map;
+  tensor_map["elevation"] = output.at("elevation_preds");
+  tensor_map["static_sem"] = output.at("inpainting_sam_preds");  // [1, F, H, W]
+  tensor_map["dynamic_sem"] =
+      output.at("inpainting_sam_dynamic_preds");                // [1, F, H, W]
+  tensor_map["depth_preds"] = output.at("depth_preds_metric");  // [1, Hd, Wd]
+  tensor_map["traversability"] =
+      output.at("traversability_preds_full");  // [1, 1, H, W]
+
+  // 4) Construct normalized cost map
+  torch::Tensor cost_map = -tensor_map["traversability"];
+  float min_cost = cost_map.min().item<float>();
+  float max_cost = cost_map.max().item<float>();
+
+  if (max_cost > min_cost) {  // Avoid division by zero
+    cost_map = (cost_map - min_cost) / (max_cost - min_cost);
+  } else {
+    ROS_WARN("Cost map has uniform values; setting to 1.");
+    cost_map.fill_(1.0f);  // Uniform cost map
+  }
+
+  // Set cost outside FOV to 1.0f
+  cost_map.masked_fill_(fov_mask_.logical_not(), 1.0f);
+  tensor_map["traversability_cost"] = cost_map;
+
+  // Mask out the FOV
+  tensor_map["static_sem"] = tensor_map["static_sem"] * fov_mask_;
+  tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
+  tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
+
+  // Store the model outputs
+  {
+    std::lock_guard<std::mutex> lock(model_outputs_mutex_);
+    model_outputs_ =
+        std::make_shared<std::unordered_map<std::string, torch::Tensor>>(
+            tensor_map);
+  }
+
+  // Publish model predictions
+  PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
+  PublishTraversability(tensor_map, "traversability_cost",
+                        traversability_publisher_);
+  end = ros::Time::now();
+  ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
 }
 
 void LSMapNode::run() {
@@ -321,51 +409,13 @@ void LSMapNode::run() {
     }
   }
 
-  if (!cloud_msg || !image_msg || !has_rectification_) return;
-
-  // 1) Project
-  ros::Time start = ros::Time::now();
-  ROS_INFO("Projecting point cloud to image space...");
-  auto inputs = ProcessInputs(cloud_msg, image_msg);
-  ros::Time end = ros::Time::now();
-  ROS_INFO("Projection time: %f seconds", (end - start).toSec());
-
-  // 2) Model Inference
-  start = ros::Time::now();
-  auto output = model_->forward(inputs);
-  end = ros::Time::now();
-  ROS_INFO("Model Inference time: %f seconds", (end - start).toSec());
-
-  // 3) Process the resulting map(s)
-  start = ros::Time::now();
-  std::unordered_map<std::string, torch::Tensor> tensor_map;
-  tensor_map["elevation"] = output.at("elevation_preds");
-  tensor_map["static_sem"] = output.at("inpainting_sam_preds");  // [1, F, H, W]
-  tensor_map["dynamic_sem"] =
-      output.at("inpainting_sam_dynamic_preds");                // [1, F, H, W]
-  tensor_map["depth_preds"] = output.at("depth_preds_metric");  // [1, Hd, Wd]
-  tensor_map["traversability"] =
-      output.at("traversability_preds_full");  // [1, 1, H, W]
-
-  // Mask out the FOV
-  tensor_map["traversability"] = tensor_map["traversability"] * fov_mask_;
-  tensor_map["static_sem"] = tensor_map["static_sem"] * fov_mask_;
-  tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
-  tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
-
-  // Store the model outputs
   {
-    std::lock_guard<std::mutex> lock(model_outputs_mutex_);
-    model_outputs_ = std::make_shared<std::unordered_map<std::string, torch::Tensor>>(
-        tensor_map);
+    std::lock_guard<std::mutex> lock(latest_msg_mutex_);
+    latest_cloud_msg_ = cloud_msg;
+    latest_image_msg_ = image_msg;
   }
 
-  // Publish model predictions
-  PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
-  PublishTraversability(tensor_map, "traversability",
-                        traversability_publisher_);
-  end = ros::Time::now();
-  ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
+  // if (!cloud_msg || !image_msg || !has_rectification_) return;
 }
 
 }  // namespace lsmap

@@ -25,14 +25,19 @@ struct PlannerParams {
   int partitions;
   float dt;
   int max_iters;
+  float max_time;
+  float goal_tolerance;
+  float cost_weight;
 };
 
 struct MapParams {
-  float height;     // cells
-  float width;      // cells
-  float resolution; // meters/cell
-  float origin_x;   // cells
-  float origin_y;   // cells
+  float height;      // cells
+  float width;       // cells
+  float resolution;  // meters/cell
+  float origin_x;    // cells
+  float origin_y;    // cells
+  int map_height;    // pixels
+  int map_width;     // pixels
 };
 
 struct Pose2D {
@@ -44,11 +49,8 @@ struct Pose2D {
   Pose2D(float x, float y, float theta) : x(x), y(y), theta(theta) {}
 };
 
-struct Path {
-  std::vector<Pose2D> poses;
-};
-
-void TensorToVec2D(const torch::Tensor& tensor, std::vector<std::vector<float>>& vec);
+void TensorToVec2D(const torch::Tensor& tensor,
+                   std::vector<std::vector<float>>& vec);
 
 inline torch::Tensor createTrapezoidalFovMask(int H, int W,
                                               float fovTopAngle = 70,
@@ -100,6 +102,8 @@ inline torch::Tensor createTrapezoidalFovMask(int H, int W,
 
 namespace lsmap {
 
+std::vector<float> linspace(float start, float end, int num);
+
 std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
                                               int components);
 
@@ -121,4 +125,4 @@ void PublishCompletedDepth(
 
 }  // namespace lsmap
 
-#endif // UTILS_H
+#endif  // UTILS_H
