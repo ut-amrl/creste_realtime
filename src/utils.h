@@ -24,6 +24,7 @@ struct PlannerParams {
   float max_dw;
   int partitions;
   float dt;
+  int max_iters;
 };
 
 struct MapParams {

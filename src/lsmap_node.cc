@@ -264,6 +264,8 @@ bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
   std::vector<std::vector<float>> traversability_vec;
   TensorToVec2D(traversability_map.squeeze(), traversability_vec);
   
+  // Time the time to plan the path
+  
   Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
   const auto &path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
 

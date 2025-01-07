@@ -13,6 +13,7 @@ planner_params:
   max_dw: 0.78539
   partitions: 11
   dt: 1.0
+  max_iters: 50000
 input_topics:
   image: "/stereo/left/image_raw"
   pointcloud: "/ouster/points"

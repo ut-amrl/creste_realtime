@@ -56,6 +56,7 @@ public:
         planner_params_.max_dw = node["max_dw"].as<float>();
         planner_params_.partitions = node["partitions"].as<int>();
         planner_params_.dt = node["dt"].as<float>();
+        planner_params_.max_iters = node["max_iters"].as<int>();
     }
 
     Path PlanPath(const std::vector<std::vector<float>> &traversability_map, const Pose2D &carrot) {
@@ -71,6 +72,8 @@ public:
         start->h = heuristic(start, goal_x, goal_y);
         start->f = start->g + start->h;
 
+        int iteration_count = 0;
+        Node *best_node_so_far = start;  // Track node with the lowest `f` cost
         std::priority_queue<Node *> open_list;
         open_list.push(start);
 
@@ -79,9 +82,21 @@ public:
         while (!open_list.empty()) {
             Node *current = open_list.top();
             open_list.pop();
+            ++iteration_count;
+
+            // Update the best node based on `f` cost
+            if (current->f < best_node_so_far->f) {
+                best_node_so_far = current;
+            }
 
             if (isGoal(current, goal_x, goal_y)) {
                 return reconstructPath(current);
+            }
+
+            // Stop if we've reached max iterations
+            if (iteration_count >= planner_params_.max_iters) {
+                std::cout << "Max iterations reached. Returning best path found.\n";
+                return reconstructPath(best_node_so_far);
             }
 
             closed_set.insert(std::make_tuple(current->x, current->y, current->theta));

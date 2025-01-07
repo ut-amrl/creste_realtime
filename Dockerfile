@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libopencv-dev \
+    libgtest-dev libgoogle-glog-dev \
     python-is-python3 \
     python3-pip \
     software-properties-common \

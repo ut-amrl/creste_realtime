@@ -2,6 +2,7 @@
 **/build/**
 **/data/**
 **/bin/**
+**/lib/**
 *.pt
 *.png
 *.bkp

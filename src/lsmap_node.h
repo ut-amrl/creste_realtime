@@ -24,6 +24,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 #include "yaml-cpp/yaml.h"
+#include "glog/logging.h"
 
 // STL / OpenCV
 #include <mutex>
@@ -37,6 +38,7 @@
 #include "planner.h"
 #include "lsmap.h"
 #include "utils.h"
+#include "shared/util/timer.h"
 
 using amrl_msgs::CarrotPlannerSrv;
 

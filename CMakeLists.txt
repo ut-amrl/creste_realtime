@@ -56,6 +56,9 @@ find_package(yaml-cpp REQUIRED)
 set(libs
   roslib
   roscpp
+  glog 
+  gflags
+  amrl_shared_lib
   cv_bridge
   yaml-cpp
 )
@@ -67,6 +70,7 @@ set(libs
 # but we can add extra includes if needed:
 include_directories(
   include
+  src/shared
   ${OpenCV_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${TORCH_INCLUDE_DIRS}
@@ -74,6 +78,8 @@ include_directories(
   # ${grid_map_core_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIRS} 
 )
+
+add_subdirectory(src/shared)
 
 link_directories(${PCL_LIBRARY_DIRS})
 
