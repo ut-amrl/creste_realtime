@@ -1,6 +1,8 @@
 #ifndef PLANNER_H_
 #define PLANNER_H_
 
+#include <ros/ros.h>
+#include <sensor_msgs/Image.h>
 #include <torch/torch.h>
 
 #include <cmath>
@@ -307,6 +309,56 @@ class CarrotPlanner {
 
     // Save the image
     cv::imwrite("reconstructed_path.png", pathImg);
+  }
+
+  void publishPathOnMap(
+      const std::vector<std::vector<float>>& traversability_map,
+      const std::vector<PathPoint>& path, ros::Publisher& image_pub) {
+    // Dimensions from the traversability map
+    int rows = static_cast<int>(traversability_map.size());
+    if (rows == 0) return;
+    int cols = static_cast<int>(traversability_map[0].size());
+
+    // Create a color image from the traversability map
+    cv::Mat mapImage(rows, cols, CV_8UC3);
+
+    // Fill the image with grayscale values based on traversability
+    for (int i = 0; i < rows; ++i) {
+      for (int j = 0; j < cols; ++j) {
+        float val = traversability_map[i][j];
+        int intensity = static_cast<int>(Clamp(val * 255.0f, 0.0f, 255.0f));
+
+        // Set values outside of fov mask to black
+        if (fov_mask_[i][j] == 0.0f) {
+          intensity = 0.0f;
+        }
+        mapImage.at<cv::Vec3b>(i, j) =
+            cv::Vec3b(intensity, intensity, intensity);
+      }
+    }
+
+    // Overlay the reconstructed path onto the map image in red
+    for (size_t k = 1; k < path.size(); ++k) {
+      const auto& prev = path[k - 1];
+      const auto& curr = path[k];
+
+      // Convert world coordinates to cell/grid indices
+      auto [x1, y1] = to_cell(prev.x, prev.y);
+      auto [x2, y2] = to_cell(curr.x, curr.y);
+
+      // Draw a line segment between consecutive points in the path
+      cv::line(mapImage, cv::Point(y1, x1), cv::Point(y2, x2),
+               cv::Scalar(0, 0, 255), 2);  // Red color, thickness 2
+    }
+
+    // Convert the OpenCV image to a ROS Image message using cv_bridge
+    cv_bridge::CvImage cv_image;
+    cv_image.encoding = "bgr8";  // 8-bit color image
+    cv_image.image = mapImage;
+    sensor_msgs::ImagePtr msg = cv_image.toImageMsg();
+
+    // Publish the image
+    image_pub.publish(msg);
   }
 
  private:

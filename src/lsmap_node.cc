@@ -2,7 +2,8 @@
 
 namespace lsmap {
 
-LSMapNode::LSMapNode(const std::string& config_path)
+LSMapNode::LSMapNode(const std::string& config_path,
+                     const std::string& weights_path)
     : nh_("~"),
       model_(nullptr),
       model_outputs_(nullptr),
@@ -28,6 +29,7 @@ LSMapNode::LSMapNode(const std::string& config_path)
   }
   std::string model_path =
       config["model_params"]["weights_path"].as<std::string>();
+  model_path = model_path.empty() ? weights_path : model_path;
   std::string image_topic = config["input_topics"]["image"].as<std::string>();
   std::string pointcloud_topic =
       config["input_topics"]["pointcloud"].as<std::string>();
@@ -37,6 +39,9 @@ LSMapNode::LSMapNode(const std::string& config_path)
       config["output_topics"]["depth"].as<std::string>();
   std::string output_traversability_topic =
       config["output_topics"]["traversability"].as<std::string>();
+
+  // Assert that weights path is not empty
+  CHECK_GT(model_path.size(), 0) << "Model weights path is empty.";
 
   // Load Model
   model_ = std::make_shared<LSMapModel>(model_path);
@@ -272,24 +277,22 @@ bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
   }
 
   const auto& traversability_map = model_outputs_->at("traversability");
-  std::vector<std::vector<float>> traversability_vec;
-  TensorToVec2D(traversability_map.squeeze(), traversability_vec);
+  TensorToVec2D(traversability_map.squeeze(), traversability_vec_);
 
   // 2 Plan path to carrot
-
   ros::Time start = ros::Time::now();
   Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
-  auto path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
+  latest_path_ = carrot_planner_->PlanPath(traversability_vec_, carrot_pose);
   ros::Time end = ros::Time::now();
   ROS_INFO("Path planning time: %f seconds", (end - start).toSec());
   carrot_planner_->printExploredNodes();
-  carrot_planner_->printPath(path);
+  // carrot_planner_->printPath(path);
 
   // 3 Populate response with path
   nav_msgs::Path path_ros;
   path_ros.header.frame_id = "base_link";
   path_ros.header.stamp = ros::Time::now();
-  for (const auto& path_point : path) {
+  for (const auto& path_point : latest_path_) {
     geometry_msgs::PoseStamped posestamped;
     posestamped.pose.position.x = path_point.x;
     posestamped.pose.position.y = path_point.y;
@@ -300,7 +303,7 @@ bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
   }
   res.success.data = true;
 
-  ROS_INFO("Planned path with %lu waypoints.", path.size());
+  ROS_INFO("Planned path with %lu waypoints.", latest_path_.size());
 
   return true;
 }
@@ -371,8 +374,8 @@ void LSMapNode::inference() {
 
   // Publish model predictions
   PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
-  PublishTraversability(tensor_map, "traversability_cost",
-                        traversability_publisher_);
+  // PublishTraversability(tensor_map, "traversability_cost",
+  //                       traversability_publisher_);
   end = ros::Time::now();
   ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
 }
@@ -416,6 +419,11 @@ void LSMapNode::run() {
   }
 
   // if (!cloud_msg || !image_msg || !has_rectification_) return;
+  if (latest_path_.empty() || traversability_vec_.empty()) return;
+
+  // Publish path on traversability map
+  carrot_planner_->publishPathOnMap(traversability_vec_, latest_path_,
+                                    traversability_publisher_);
 }
 
 }  // namespace lsmap

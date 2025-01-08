@@ -46,7 +46,7 @@ namespace lsmap {
 
 class LSMapNode {
  public:
-  LSMapNode(const std::string& config_path);
+  LSMapNode(const std::string& config_path, const std::string& weights_path);
 
   /// \brief Main processing function called periodically in main()
   void run();
@@ -118,6 +118,8 @@ class LSMapNode {
 
   // === Planners ===
   std::shared_ptr<CarrotPlanner> carrot_planner_;
+  std::vector<PathPoint> latest_path_;
+  std::vector<std::vector<float>> traversability_vec_;
 };
 }  // namespace lsmap
 

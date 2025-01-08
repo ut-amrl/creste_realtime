@@ -1,5 +1,5 @@
 model_params:
-  weights_path: "./traversability_model_trace.pt"
+  weights_path: "" # Leave blank to use override from cli
 map_params:
   resolution: 0.1
   height: 25.6
@@ -16,7 +16,7 @@ planner_params:
   max_dw: 0.15
   partitions: 11
   dt: 1.0
-  max_iters: 10000
+  max_iters: 5000
   # Set max time to 0.0 to not use 
   max_time: 0.0
   goal_tolerance: 0.5
