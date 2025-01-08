@@ -1,94 +1,124 @@
-#include <omp.h>
-#include <torch/torch.h>
-#include <torch/script.h>
+#ifndef LSMAP_NODE_H
+#define LSMAP_NODE_H
 
-#include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/image.hpp>
-#include <sensor_msgs/msg/camera_info.hpp>
-#include <std_msgs/msg/float32_multi_array.hpp>
+#include <omp.h>
+#include <torch/script.h>
+#include <torch/torch.h>
+
+// AMRL Service messages
+#include "amrl_msgs/CarrotPlannerSrv.h"
+
+// ROS 1 headers
 #include <cv_bridge/cv_bridge.h>
-#include <opencv2/opencv.hpp>
-#include <pcl_conversions/pcl_conversions.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Path.h>
+#include <ros/ros.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <std_msgs/Float32MultiArray.h>
+
+// PCL
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 
-#include <grid_map_ros/grid_map_ros.hpp>
-#include <grid_map_msgs/msg/grid_map.hpp>
-#include <grid_map_cv/grid_map_cv.hpp>
+#include "glog/logging.h"
+#include "yaml-cpp/yaml.h"
 
+// STL / OpenCV
+#include <mutex>
+#include <opencv2/opencv.hpp>
+#include <queue>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Local headers
 #include "lsmap.h"
+#include "planner.h"
+#include "shared/util/timer.h"
 #include "utils.h"
 
-using std::placeholders::_1;
+using amrl_msgs::CarrotPlannerSrv;
 
 namespace lsmap {
-class LSMapNode : public rclcpp::Node {
-public:
-    LSMapNode(const std::string model_path) : Node("lsmap_node"), model_(model_path, this->get_logger()) {
-        RCLCPP_INFO(this->get_logger(), "LSMapNode initialized.");
-        // Subscription to PointCloud2 topic
-        pointcloud_subscriber_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/ouster/points", 10, std::bind(&LSMapNode::pointcloud_callback, this, _1));
 
-        // Subscription to Image topic
-        image_subscriber_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/stereo/left", 10, std::bind(&LSMapNode::image_callback, this, _1));
+class LSMapNode {
+ public:
+  LSMapNode(const std::string& config_path);
 
-        camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-            "/camera_info", 10, std::bind(&LSMapNode::camera_info_callback, this, _1));
+  /// \brief Main processing function called periodically in main()
+  void run();
+  void inference();
 
-        p2p_subscriber_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-            "/p2p", 10, std::bind(&LSMapNode::p2p_callback, this, _1));
+ private:
+  // === Callbacks ===
+  void PointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
+  void ImageCallback(const sensor_msgs::ImageConstPtr& msg);
+  void CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg);
 
-        // Create fov mask TODO: Change hardcoded map size
-        fov_mask_ = createTrapezoidalFovMask(256, 256);
+  // === Helper functions ===
+  bool CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
+                             CarrotPlannerSrv::Response& res);
+  void LoadCalibParams(const YAML::Node& config);
 
-        // Publisher for Image topic
-        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/lsmap/rgbd", 10);
-        grid_map_publisher_ = this->create_publisher<grid_map_msgs::msg::GridMap>("/lsmap/grid_map", 10);
-    }
+  bool is_cell_visible(const int i, const int j, const int grid_height,
+                       const int grid_width);
 
-    void run();
-private:
-    void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  // Projection function for combining point cloud & image
+  std::tuple<torch::Tensor, torch::Tensor> ProcessInputs(
+      const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
+      const sensor_msgs::ImageConstPtr& image_msg);
 
-    void image_callback(const sensor_msgs::msg::Image::SharedPtr msg);
+ private:
+  // === ROS 1 NodeHandle ===
+  ros::NodeHandle nh_;
 
-    void p2p_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
+  // === Services ===
+  ros::ServiceServer carrot_planner_service;
 
-    void camera_info_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
+  // === Subscribers ===
+  ros::Subscriber pointcloud_subscriber_;
+  ros::Subscriber image_subscriber_;
+  ros::Subscriber camera_info_subscriber_;
+  ros::Subscriber p2p_subscriber_;
 
-    void save_depth_image(const cv::Mat &depthMatrix, const std::string &filename);
+  // === Publishers ===
+  ros::Publisher image_publisher_;
+  ros::Publisher depth_publisher_;
+  ros::Publisher traversability_publisher_;
 
-    void tensorToGridMap(
-        const std::unordered_map<std::string, torch::Tensor>& output, 
-        grid_map::GridMap& map
-    );
+  // === ROS messages ===
+  sensor_msgs::CameraInfo camera_info_;
+  CalibInfo pt2pix_, pix2pt_;
 
-    bool is_cell_visible(const int i, const int j, const int grid_height, const int grid_width);
+  // Whether we have computed our remap matrices yet
+  bool has_rectification_{false};
 
-    std::tuple<torch::Tensor, torch::Tensor> computePCA(const torch::Tensor& tensor, int components);
+  // Remap matrices for OpenCV
+  cv::Mat map1_, map2_;
 
-    std::tuple<torch::Tensor, torch::Tensor> projection(
-        sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg,                   sensor_msgs::msg::Image::SharedPtr image_msg
-    );
+  // === Buffers/queues ===
+  std::queue<sensor_msgs::PointCloud2ConstPtr> cloud_queue_;
+  std::queue<sensor_msgs::ImageConstPtr> image_queue_;
+  std::mutex queue_mutex_;
 
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_subscriber_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
-    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr p2p_subscriber_;
-    sensor_msgs::msg::CameraInfo camera_info_;
-    std_msgs::msg::Float32MultiArray pixel_to_point_;
-    
-    //Publishers
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
-    rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_publisher_;
+  // === Misc ===
+  sensor_msgs::PointCloud2ConstPtr latest_cloud_msg_;
+  sensor_msgs::ImageConstPtr latest_image_msg_;
+  std::mutex latest_msg_mutex_;
 
-    lsmap::LSMapModel model_;
-    std::queue<sensor_msgs::msg::PointCloud2::SharedPtr> cloud_queue_;
-    std::queue<sensor_msgs::msg::Image::SharedPtr> image_queue_;
-    std::mutex queue_mutex_;
-    std::vector<std::vector<bool>> fov_mask_;
+  // === Model Inference ===
+  std::shared_ptr<lsmap::LSMapModel> model_;
+  std::mutex model_outputs_mutex_;
+  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
+      model_outputs_;
+  torch::Tensor fov_mask_;
+
+  // === Planners ===
+  std::shared_ptr<CarrotPlanner> carrot_planner_;
 };
-} // namespace lsmap
+}  // namespace lsmap
+
+#endif  // LSMAP_NODE_H

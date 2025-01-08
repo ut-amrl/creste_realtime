@@ -1,0 +1,48 @@
+model_params:
+  weights_path: "./traversability_model_trace.pt"
+map_params:
+  resolution: 0.1
+  height: 25.6
+  width: 25.6
+  origin_x: 12.8
+  origin_y: 12.8
+planner_params:
+  max_v: 1.0
+  # max_w: 1.57079
+  max_w: 0.3
+  # max_w: 0.0 
+  max_dv: 0.2
+  # max_dw: 0.78539
+  max_dw: 0.15
+  partitions: 11
+  dt: 1.0
+  max_iters: 10000
+  # Set max time to 0.0 to not use 
+  max_time: 0.0
+  goal_tolerance: 0.5
+  cost_weight: 1.5
+input_topics:
+  image: "/stereo/left/image_raw"
+  pointcloud: "/ouster/points"
+  camera_info: "/stereo/left/camera_info"
+output_topics:
+  depth: "/stereo/left/image_raw/depth"
+  traversability: "/creste/bev/traversability"
+
+pt2pix: # LiDAR to Rectified Camera Pixels
+  rows: 3
+  cols: 4
+  data: [
+    301.13403570382144, -376.1192776643343, -48.349403501237404, 88.35658829896963,
+    192.48832994264063, 11.840629519319602, -412.32199522062905, 70.10208705147569,
+    0.99045527230158, 0.02026747269214922, -0.13633628688165195, 0.12210597463351888
+  ]
+pix2pt: # Rectified Camera Pixels to LiDAR
+  rows: 4
+  cols: 4
+  data: [
+    0.0002588, -0.0004369, 1.0044338, -0.0866639,
+    -0.0100275, -0.0000634, 0.8541335, 0.1370287,
+    0.0000522, -0.0100213, 0.5713282, 0.1014493,
+    -0.0000000, -0.0000000, 0.0000000, 1.0000010
+  ]

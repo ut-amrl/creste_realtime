@@ -1,11 +1,13 @@
-# Use the NVIDIA CUDA base image with Ubuntu 22.04
-FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+# Use the NVIDIA CUDA base image with Ubuntu 20.04 for ROS Noetic compatibility
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu20.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install necessary tools and libraries
-RUN apt-get update && apt-get install -y \
+#-----------------------------------------------------------
+# 1) Basic dependencies and tools
+#-----------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
     lsb-release \
     gnupg2 \
     curl \
@@ -14,69 +16,73 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     libopencv-dev \
+    libgtest-dev libgoogle-glog-dev \
+    python-is-python3 \
     python3-pip \
     software-properties-common \
     tmux \
-    unzip
+    vim \
+    unzip && \
+    rm -rf /var/lib/apt/lists/*
 
-# Add the ROS 2 apt repository
-RUN apt-get update && apt-get install -y curl gnupg lsb-release && \
-    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | apt-key add - && \
-    sh -c 'echo "deb http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2-latest.list'
+#-----------------------------------------------------------
+# 2) Setup ROS 1 Noetic apt repository and install
+#    (For Ubuntu 20.04)
+#-----------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg2 \
+    lsb-release && \
+    # Add ROS Noetic sources
+    sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros1-latest.list' && \
+    apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 && \
+    apt-get update
 
-# Install ROS 2 Humble
-RUN apt-get update && apt-get install -y \
-    ros-humble-ros-base \
-    ros-humble-rclcpp \
-    ros-humble-sensor-msgs \
-    ros-humble-cv-bridge \
-    ros-humble-std-msgs \
-    ros-humble-pcl-conversions \
-    ros-humble-rviz2 \
-    # ros-humble-rviz2 \
-    # ros-humble-rviz-common \
-    # ros-humble-rviz-default-plugins \
-    # ros-humble-rviz-visual-tools \
-    # ros-humble-rviz-rendering \
-    ros-humble-image-transport-plugins \
-    python3-colcon-common-extensions 
-# Only necessary for x11 forwarding
-# software-properties-common \
-# x11-apps \
-# mesa-utils
+# Install ROS Noetic (minimal + needed packages)
+RUN apt-get install -y --no-install-recommends \
+    ros-noetic-desktop \
+    ros-noetic-cv-bridge \
+    ros-noetic-sensor-msgs \
+    ros-noetic-std-msgs \
+    ros-noetic-pcl-conversions \
+    # for rviz, you could also add ros-noetic-rviz if desired
+    && rm -rf /var/lib/apt/lists/*
 
-ENV NVIDIA_VISIBLE_DEVICES \
-    ${NVIDIA_VISIBLE_DEVICES:-all}
-ENV NVIDIA_DRIVER_CAPABILITIES \
-    ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
+# Initialize rosdep if needed:
+RUN apt-get update && apt-get install -y python3-rosdep && \
+    rosdep init && \
+    rosdep update
 
-# Install PCL library
-RUN apt-get update && apt-get install -y libpcl-dev
+#-----------------------------------------------------------
+# 3) Environment setup
+#-----------------------------------------------------------
+ENV NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
-# Install TorchScript (PyTorch C++ API)
-RUN pip3 install torch torchvision torchaudio
+#-----------------------------------------------------------
+# 4) Install PCL, Torch, and other dependencies
+#-----------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends libpcl-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Download and install libtorch for cuda 12.1
+# PyTorch + TorchScript via pip (you may adjust the version if needed)
+RUN pip3 install --no-cache-dir torch torchvision torchaudio
+
+# Download and install libtorch for CUDA 12.1
 RUN curl -LO https://download.pytorch.org/libtorch/cu121/libtorch-cxx11-abi-shared-with-deps-2.3.1%2Bcu121.zip && \
     unzip libtorch-cxx11-abi-shared-with-deps-2.3.1%2Bcu121.zip -d /usr/local && \
     rm libtorch-cxx11-abi-shared-with-deps-2.3.1%2Bcu121.zip
 
 # Install Eigen3
-RUN apt-get update && apt-get install -y libeigen3-dev
-RUN apt-get update && apt-get install -y ros-humble-grid-map
-# python3-rosdep
+RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set up environment
-RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+#-----------------------------------------------------------
+# 5) Source ROS in .bashrc
+#-----------------------------------------------------------
+RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+RUN echo "export ROS_PACKAGE_PATH=/home/creste_realtime:/home/amrl_msgs:\$ROS_PACKAGE_PATH" >> ~/.bashrc
 
-# Add the user workspace
-RUN mkdir -p /workspace/src
-WORKDIR /workspace
+# Note: In ROS 1, you typically use catkin_make or catkin tools
+# We won't build here by default, because you may want to build interactively.
 
-# Copy the package to the workspace
-COPY . /workspace/src/lsmap_realtime
-
-RUN /bin/bash -c "source /opt/ros/humble/setup.sh"
-
-# Source the setup file
-CMD ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec bash"]
+CMD ["/bin/bash", "-c", "source /opt/ros/noetic/setup.bash && exec bash"]
