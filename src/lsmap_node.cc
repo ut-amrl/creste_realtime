@@ -4,7 +4,8 @@ using amrl_msgs::CostmapSrv;
 
 namespace lsmap {
 
-LSMapNode::LSMapNode(const std::string& config_path)
+LSMapNode::LSMapNode(const std::string& config_path,
+                     const std::string& weights_path)
     : nh_("~"),
       model_(nullptr),
       model_outputs_(nullptr),
@@ -30,6 +31,7 @@ LSMapNode::LSMapNode(const std::string& config_path)
   }
   std::string model_path =
       config["model_params"]["weights_path"].as<std::string>();
+  model_path = model_path.empty() ? weights_path : model_path;
   std::string image_topic = config["input_topics"]["image"].as<std::string>();
   std::string pointcloud_topic =
       config["input_topics"]["pointcloud"].as<std::string>();
@@ -123,7 +125,8 @@ void LSMapNode::PointCloudCallback(
   // ROS_INFO("PointCloud size: %lu", pcl_cloud.size());
 }
 
-void LSMapNode::CompressedImageCallback(const sensor_msgs::CompressedImageConstPtr& msg) {
+void LSMapNode::CompressedImageCallback(
+    const sensor_msgs::CompressedImageConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
   // ROS_INFO("Received Image message");
   image_queue_.push(msg);
@@ -263,10 +266,9 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
 }
 
 bool LSMapNode::CostmapCallback(CostmapSrv::Request& req,
-                                      CostmapSrv::Response& res) {
+                                CostmapSrv::Response& res) {
   // 1 Perform model inference (Cached)
-  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
-      model_outputs;
+  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs;
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
     model_outputs = model_outputs_;
@@ -282,9 +284,9 @@ bool LSMapNode::CostmapCallback(CostmapSrv::Request& req,
 
   // 2 Create image costmap
   cv_bridge::CvImage cv_img;
-  cv_img.header.stamp = ros::Time::now(); // Timestamp
-  cv_img.header.frame_id = "base_link";   // Set frame_id (can be customized)
-  cv_img.encoding = sensor_msgs::image_encodings::TYPE_8UC1; // 8-bit grayscale
+  cv_img.header.stamp = ros::Time::now();  // Timestamp
+  cv_img.header.frame_id = "base_link";    // Set frame_id (can be customized)
+  cv_img.encoding = sensor_msgs::image_encodings::TYPE_8UC1;  // 8-bit grayscale
   cv_img.image = TensorToMat(traversability_map);
 
   // Convert CvImage to Image message
@@ -384,9 +386,13 @@ void LSMapNode::run() {
     ros::Time image_time = image_queue_.front()->header.stamp;
 
     // Convert timestamps to nanoseconds
-    int64_t cloud_time_ns = static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
-    int64_t image_time_ns = static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
-    int64_t current_time_ns = static_cast<int64_t>(current_time.sec) * 1000000000LL + current_time.nsec;
+    int64_t cloud_time_ns =
+        static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
+    int64_t image_time_ns =
+        static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
+    int64_t current_time_ns =
+        static_cast<int64_t>(current_time.sec) * 1000000000LL +
+        current_time.nsec;
 
     // Check if the messages are older than 300ms
     if (std::abs(current_time_ns - cloud_time_ns) > 300LL * 1000000LL) {
@@ -397,13 +403,16 @@ void LSMapNode::run() {
       image_queue_.pop();  // Drop the image message if it's older than 300ms
     }
 
-    // After dropping older messages, if both queues are still not empty, compare timestamps
+    // After dropping older messages, if both queues are still not empty,
+    // compare timestamps
     if (!cloud_queue_.empty() && !image_queue_.empty()) {
       cloud_time = cloud_queue_.front()->header.stamp;
       image_time = image_queue_.front()->header.stamp;
 
-      cloud_time_ns = static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
-      image_time_ns = static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
+      cloud_time_ns =
+          static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
+      image_time_ns =
+          static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
 
       // Check if the timestamps are within 100ms
       int64_t time_diff_ns = std::abs(cloud_time_ns - image_time_ns);
@@ -435,6 +444,5 @@ void LSMapNode::run() {
 
   this->inference();
 }
-
 
 }  // namespace lsmap

@@ -47,7 +47,7 @@ namespace lsmap {
 
 class LSMapNode {
  public:
-  LSMapNode(const std::string& config_path);
+  LSMapNode(const std::string& config_path, const std::string& weights_path);
 
   /// \brief Main processing function called periodically in main()
   void run();
@@ -60,8 +60,7 @@ class LSMapNode {
   void CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg);
 
   // === Helper functions ===
-  bool CostmapCallback(CostmapSrv::Request& req,
-                             CostmapSrv::Response& res);
+  bool CostmapCallback(CostmapSrv::Request& req, CostmapSrv::Response& res);
   void LoadCalibParams(const YAML::Node& config);
 
   bool is_cell_visible(const int i, const int j, const int grid_height,
