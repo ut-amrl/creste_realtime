@@ -52,6 +52,8 @@ struct Pose2D {
 void TensorToVec2D(const torch::Tensor& tensor,
                    std::vector<std::vector<float>>& vec);
 
+cv::Mat TensorToMat(const torch::Tensor& tensor);
+
 inline torch::Tensor createTrapezoidalFovMask(int H, int W,
                                               float fovTopAngle = 70,
                                               float fovBottomAngle = 70,

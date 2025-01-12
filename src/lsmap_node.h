@@ -6,7 +6,7 @@
 #include <torch/torch.h>
 
 // AMRL Service messages
-#include "amrl_msgs/CarrotPlannerSrv.h"
+#include "amrl_msgs/CostmapSrv.h"
 
 // ROS 1 headers
 #include <cv_bridge/cv_bridge.h>
@@ -14,6 +14,7 @@
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Float32MultiArray.h>
@@ -40,7 +41,7 @@
 #include "shared/util/timer.h"
 #include "utils.h"
 
-using amrl_msgs::CarrotPlannerSrv;
+using amrl_msgs::CostmapSrv;
 
 namespace lsmap {
 
@@ -55,12 +56,12 @@ class LSMapNode {
  private:
   // === Callbacks ===
   void PointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-  void ImageCallback(const sensor_msgs::ImageConstPtr& msg);
+  void CompressedImageCallback(const sensor_msgs::CompressedImageConstPtr& msg);
   void CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg);
 
   // === Helper functions ===
-  bool CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
-                             CarrotPlannerSrv::Response& res);
+  bool CostmapCallback(CostmapSrv::Request& req,
+                             CostmapSrv::Response& res);
   void LoadCalibParams(const YAML::Node& config);
 
   bool is_cell_visible(const int i, const int j, const int grid_height,
@@ -69,7 +70,7 @@ class LSMapNode {
   // Projection function for combining point cloud & image
   std::tuple<torch::Tensor, torch::Tensor> ProcessInputs(
       const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
-      const sensor_msgs::ImageConstPtr& image_msg);
+      const sensor_msgs::CompressedImageConstPtr& image_msg);
 
  private:
   // === ROS 1 NodeHandle ===
@@ -101,12 +102,12 @@ class LSMapNode {
 
   // === Buffers/queues ===
   std::queue<sensor_msgs::PointCloud2ConstPtr> cloud_queue_;
-  std::queue<sensor_msgs::ImageConstPtr> image_queue_;
+  std::queue<sensor_msgs::CompressedImageConstPtr> image_queue_;
   std::mutex queue_mutex_;
 
   // === Misc ===
   sensor_msgs::PointCloud2ConstPtr latest_cloud_msg_;
-  sensor_msgs::ImageConstPtr latest_image_msg_;
+  sensor_msgs::CompressedImageConstPtr latest_image_msg_;
   std::mutex latest_msg_mutex_;
 
   // === Model Inference ===

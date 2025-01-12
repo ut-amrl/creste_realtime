@@ -26,6 +26,48 @@ void TensorToVec2D(const torch::Tensor& tensor,
   }
 }
 
+cv::Mat TensorToMat(const torch::Tensor& tensor) {
+  // Ensure the tensor is on the CPU
+  torch::Tensor tensor_cpu = tensor.to(torch::kCPU).squeeze();  // Remove the batch dimension if present
+
+  // Get the number of rows and columns (assuming single-channel image)
+  int rows = tensor_cpu.size(0);
+  int cols = tensor_cpu.size(1);
+
+  // Ensure the tensor has the correct shape (single channel, 2D tensor)
+  if (tensor_cpu.dim() != 2) {
+    throw std::invalid_argument("Tensor must be a 2D tensor.");
+  }
+
+  // Create a single-channel 1 byte int matrix
+  auto mat = cv::Mat(rows, cols, CV_32FC1);  // CV_32FC1 corresponds to 32-bit float, single-channel
+
+  // Copy the data from the tensor to the OpenCV mat
+  auto accessor = tensor_cpu.accessor<float, 2>();
+  for (int i = 0; i < rows; ++i) {
+    for (int j = 0; j < cols; ++j) {
+      mat.at<float>(i, j) = accessor[i][j];
+    }
+  }
+
+  // Scale the data into [0, 255] range for visualization
+  double min_val, max_val;
+  cv::minMaxLoc(mat, &min_val, &max_val);
+
+  cv::Mat scaled_8u;
+  // We scale so that anything at min_val -> 0, max_val -> 255
+  // If min_val == max_val, convertTo(...) will produce a uniform image.
+  if (min_val == max_val) {
+    // entire image is constant
+    mat.convertTo(scaled_8u, CV_8UC1, 1.0, 0.0);
+  } else {
+    mat.convertTo(scaled_8u, CV_8UC1, 255.0 / (max_val - min_val),
+                       -255.0 * min_val / (max_val - min_val));
+  }
+
+  return scaled_8u;
+}
+
 namespace lsmap {
 
 std::vector<float> linspace(float start, float end, int num) {

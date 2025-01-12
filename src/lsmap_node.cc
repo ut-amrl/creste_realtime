@@ -1,5 +1,7 @@
 #include "lsmap_node.h"
 
+using amrl_msgs::CostmapSrv;
+
 namespace lsmap {
 
 LSMapNode::LSMapNode(const std::string& config_path)
@@ -47,7 +49,7 @@ LSMapNode::LSMapNode(const std::string& config_path)
 
   // ServiceServers
   carrot_planner_service = nh_.advertiseService(
-      "/navigation/carrot_planner", &LSMapNode::CarrotPlannerCallback, this);
+      "/navigation/deep_cost_map_service", &LSMapNode::CostmapCallback, this);
 
   // Subscription to PointCloud2 topic
   ROS_INFO("--- Subscribing to topics ---");
@@ -55,8 +57,8 @@ LSMapNode::LSMapNode(const std::string& config_path)
       pointcloud_topic, 10, &LSMapNode::PointCloudCallback, this);
 
   // Subscription to Image topic
-  image_subscriber_ = nh_.subscribe<sensor_msgs::Image>(
-      image_topic, 10, &LSMapNode::ImageCallback, this);
+  image_subscriber_ = nh_.subscribe<sensor_msgs::CompressedImage>(
+      image_topic, 10, &LSMapNode::CompressedImageCallback, this);
 
   // Subscription to CameraInfo
   camera_info_subscriber_ = nh_.subscribe<sensor_msgs::CameraInfo>(
@@ -121,7 +123,7 @@ void LSMapNode::PointCloudCallback(
   // ROS_INFO("PointCloud size: %lu", pcl_cloud.size());
 }
 
-void LSMapNode::ImageCallback(const sensor_msgs::ImageConstPtr& msg) {
+void LSMapNode::CompressedImageCallback(const sensor_msgs::CompressedImageConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
   // ROS_INFO("Received Image message");
   image_queue_.push(msg);
@@ -156,14 +158,15 @@ void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
 
 std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
     const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
-    const sensor_msgs::ImageConstPtr& image_msg) {
+    const sensor_msgs::CompressedImageConstPtr& image_msg) {
   // Convert ROS PointCloud2 message to PCL point cloud
   pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(
       new pcl::PointCloud<pcl::PointXYZ>);
   pcl::fromROSMsg(*cloud_msg, *pcl_cloud);
 
-  // Convert ROS Image to OpenCV image (BGR)
-  cv::Mat bgr_image = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
+  // Convert Compressed ROS Image to OpenCV image (BGR)
+  cv::Mat bgr_image = cv::imdecode(cv::Mat(image_msg->data), cv::IMREAD_COLOR);
+  // cv::Mat bgr_image = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
 
   // Extract P(3x4) from camera_info_.P
   Eigen::Matrix<float, 3, 4, Eigen::RowMajor> pt2pixel;
@@ -259,55 +262,43 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
   return std::make_tuple(rgbd_tensor, pixel2point_tensor);
 }
 
-bool LSMapNode::CarrotPlannerCallback(CarrotPlannerSrv::Request& req,
-                                      CarrotPlannerSrv::Response& res) {
-  const auto& carrot = req.carrot;
+bool LSMapNode::CostmapCallback(CostmapSrv::Request& req,
+                                      CostmapSrv::Response& res) {
+  // 1 Perform model inference (Cached)
+  std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
+      model_outputs;
+  {
+    std::lock_guard<std::mutex> lock(model_outputs_mutex_);
+    model_outputs = model_outputs_;
+  }
 
-  // 1 Perform model inference
-  this->inference();
-  if (model_outputs_ == nullptr) {
+  if (model_outputs == nullptr) {
     ROS_ERROR("Model outputs not available.");
     res.success.data = false;
     return true;
   }
 
-  const auto& traversability_map = model_outputs_->at("traversability");
-  std::vector<std::vector<float>> traversability_vec;
-  TensorToVec2D(traversability_map.squeeze(), traversability_vec);
+  const auto& traversability_map = model_outputs->at("traversability_cost");
 
-  // 2 Plan path to carrot
+  // 2 Create image costmap
+  cv_bridge::CvImage cv_img;
+  cv_img.header.stamp = ros::Time::now(); // Timestamp
+  cv_img.header.frame_id = "base_link";   // Set frame_id (can be customized)
+  cv_img.encoding = sensor_msgs::image_encodings::TYPE_8UC1; // 8-bit grayscale
+  cv_img.image = TensorToMat(traversability_map);
 
-  ros::Time start = ros::Time::now();
-  Pose2D carrot_pose(carrot.pose.position.x, carrot.pose.position.y, 0.0f);
-  auto path = carrot_planner_->PlanPath(traversability_vec, carrot_pose);
-  ros::Time end = ros::Time::now();
-  ROS_INFO("Path planning time: %f seconds", (end - start).toSec());
-  carrot_planner_->printExploredNodes();
-  carrot_planner_->printPath(path);
-
-  // 3 Populate response with path
-  nav_msgs::Path path_ros;
-  path_ros.header.frame_id = "base_link";
-  path_ros.header.stamp = ros::Time::now();
-  for (const auto& path_point : path) {
-    geometry_msgs::PoseStamped posestamped;
-    posestamped.pose.position.x = path_point.x;
-    posestamped.pose.position.y = path_point.y;
-    posestamped.pose.position.z = 0.0;
-    posestamped.pose.orientation.w = std::cos(path_point.theta / 2.0);
-    posestamped.pose.orientation.z = std::sin(path_point.theta / 2.0);
-    res.path.poses.push_back(posestamped);
-  }
+  // Convert CvImage to Image message
+  sensor_msgs::Image img_msg;
+  cv_img.toImageMsg(img_msg);
+  res.costmap = img_msg;
   res.success.data = true;
-
-  ROS_INFO("Planned path with %lu waypoints.", path.size());
 
   return true;
 }
 
 void LSMapNode::inference() {
   sensor_msgs::PointCloud2ConstPtr cloud_msg;
-  sensor_msgs::ImageConstPtr image_msg;
+  sensor_msgs::CompressedImageConstPtr image_msg;
 
   {
     std::lock_guard<std::mutex> lock(latest_msg_mutex_);
@@ -379,33 +370,58 @@ void LSMapNode::inference() {
 
 void LSMapNode::run() {
   sensor_msgs::PointCloud2ConstPtr cloud_msg;
-  sensor_msgs::ImageConstPtr image_msg;
+  sensor_msgs::CompressedImageConstPtr image_msg;
 
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (cloud_queue_.empty() || image_queue_.empty()) return;
 
+    // Get the current time
+    ros::Time current_time = ros::Time::now();
+
+    // Get the timestamp of the first messages in the queues
     ros::Time cloud_time = cloud_queue_.front()->header.stamp;
     ros::Time image_time = image_queue_.front()->header.stamp;
 
-    // Convert to nanoseconds
-    int64_t cloud_time_ns =
-        static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
-    int64_t image_time_ns =
-        static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
+    // Convert timestamps to nanoseconds
+    int64_t cloud_time_ns = static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
+    int64_t image_time_ns = static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
+    int64_t current_time_ns = static_cast<int64_t>(current_time.sec) * 1000000000LL + current_time.nsec;
 
-    // Check if timestamps are within 100 ms
-    if (std::abs(cloud_time_ns - image_time_ns) < 100LL * 1000000LL) {
-      cloud_msg = cloud_queue_.front();
-      cloud_queue_.pop();
-      image_msg = image_queue_.front();
-      image_queue_.pop();
-    } else {
-      // Drop the older message
-      if (cloud_time_ns < image_time_ns)
+    // Check if the messages are older than 300ms
+    if (std::abs(current_time_ns - cloud_time_ns) > 300LL * 1000000LL) {
+      cloud_queue_.pop();  // Drop the cloud message if it's older than 300ms
+    }
+
+    if (std::abs(current_time_ns - image_time_ns) > 300LL * 1000000LL) {
+      image_queue_.pop();  // Drop the image message if it's older than 300ms
+    }
+
+    // After dropping older messages, if both queues are still not empty, compare timestamps
+    if (!cloud_queue_.empty() && !image_queue_.empty()) {
+      cloud_time = cloud_queue_.front()->header.stamp;
+      image_time = image_queue_.front()->header.stamp;
+
+      cloud_time_ns = static_cast<int64_t>(cloud_time.sec) * 1000000000LL + cloud_time.nsec;
+      image_time_ns = static_cast<int64_t>(image_time.sec) * 1000000000LL + image_time.nsec;
+
+      // Check if the timestamps are within 100ms
+      int64_t time_diff_ns = std::abs(cloud_time_ns - image_time_ns);
+
+      if (time_diff_ns < 100LL * 1000000LL) {
+        // If within 100ms, pop both messages
+        cloud_msg = cloud_queue_.front();
         cloud_queue_.pop();
-      else
+        image_msg = image_queue_.front();
         image_queue_.pop();
+      } else {
+        // If not within 100ms, drop the older message
+        if (cloud_time_ns < image_time_ns) {
+          cloud_queue_.pop();  // Drop the older cloud message
+        } else {
+          image_queue_.pop();  // Drop the older image message
+        }
+      }
     }
   }
 
@@ -415,7 +431,10 @@ void LSMapNode::run() {
     latest_image_msg_ = image_msg;
   }
 
-  // if (!cloud_msg || !image_msg || !has_rectification_) return;
+  if (!cloud_msg || !image_msg || !has_rectification_) return;
+
+  this->inference();
 }
+
 
 }  // namespace lsmap

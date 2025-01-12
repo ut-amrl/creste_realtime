@@ -1,5 +1,5 @@
 model_params:
-  weights_path: "./traversability_model_trace.pt"
+  weights_path: "./traversability_model_trace_distill128_cfs.pt"
 map_params:
   resolution: 0.1
   height: 25.6
@@ -22,7 +22,7 @@ planner_params:
   goal_tolerance: 0.5
   cost_weight: 1.5
 input_topics:
-  image: "/stereo/left/image_raw"
+  image: "/stereo/left/image_raw/compressed"
   pointcloud: "/ouster/points"
   camera_info: "/stereo/left/camera_info"
 output_topics:
