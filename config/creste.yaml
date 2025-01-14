@@ -6,6 +6,7 @@ map_params:
   width: 25.6
   origin_x: 12.8
   origin_y: 12.8
+  map_to_world: [-0.5, 0.0, -4.0]
 planner_params:
   max_v: 1.0
   # max_w: 1.57079

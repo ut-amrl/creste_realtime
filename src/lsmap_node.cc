@@ -42,6 +42,9 @@ LSMapNode::LSMapNode(const std::string& config_path,
   std::string output_traversability_topic =
       config["output_topics"]["traversability"].as<std::string>();
 
+  // Load map to world extrinsics
+  map_to_world_ = config["map_params"]["map_to_world"].as<std::vector<float>>();
+
   // Load Model
   model_ = std::make_shared<LSMapModel>(model_path);
   // Load LiDAR Camera extrinsics
@@ -354,6 +357,45 @@ void LSMapNode::inference() {
   tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
   tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
 
+  {
+    // 1) Move costmap to CPU & convert [0,1] float -> [0,255] uint8
+    torch::Tensor cost_map_8u = cost_map.detach()
+                                        .cpu()               // ensure on CPU
+                                        .mul(255.0f)         // scale [0,1] => [0,255]
+                                        .clamp_(0, 255)      // clamp to valid range
+                                        .to(torch::kU8);     // convert to uint8
+    cost_map_8u = cost_map_8u.squeeze();  // [B, 1, H, W] -> [H, W]
+
+    // 2) Wrap cost_map_8u in an OpenCV Mat (CV_8UC1).
+    int rows = cost_map_8u.size(0);
+    int cols = cost_map_8u.size(1);
+    cv::Mat cost_map_mat(rows, cols, CV_8UC1, cost_map_8u.data_ptr<uint8_t>());
+
+    // 3) Build affine transform: rotate 4° clockwise & shift 10 px left.
+    //    - Use angle = -4 for clockwise rotation in OpenCV.
+    //    - Then adjust the last column of the rotation matrix to shift left.
+    cv::Point2f center(cols / 2.0f, rows / 2.0f);
+    cv::Mat rot = cv::getRotationMatrix2D(center, map_to_world_[2], 1.0);
+    // Decrease the X translation by 10.0 to shift left
+    rot.at<double>(0, 2) += map_to_world_[0];
+
+    // 4) warpAffine to rotate + shift
+    cv::Mat rotated_8u;
+    cv::warpAffine(cost_map_mat, rotated_8u, rot, cost_map_mat.size(),
+                   cv::INTER_LINEAR, cv::BORDER_CONSTANT, /*borderValue*/ 255);
+
+    // 5) Convert rotated CV_8UC1 back to float [0,1] in a torch::Tensor
+    torch::Tensor rotated_tensor = torch::from_blob(
+        rotated_8u.data, {rotated_8u.rows, rotated_8u.cols}, torch::kUInt8);
+    // clone() so we own the memory (from_blob() just references existing data)
+    rotated_tensor = rotated_tensor.clone().to(torch::kFloat32).div_(255.0f);
+    rotated_tensor = rotated_tensor.unsqueeze(0).unsqueeze(0);  // [1,1,H,W]
+
+    // 6) Overwrite the costmap in the tensor_map
+    tensor_map["traversability_cost"] = rotated_tensor;
+}
+
+
   // Store the model outputs
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
@@ -366,6 +408,13 @@ void LSMapNode::inference() {
   PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
   PublishTraversability(tensor_map, "traversability_cost",
                         traversability_publisher_);
+
+  // Upsample depth iamge
+  // const int target_height = camera_info_.height;
+  // const int target_width = camera_info_.width;
+  // tensor_map["depth_full_preds"] = UpsampleDepthImage(target_height, target_width, tensor_map["depth_preds"]);
+  // PublishCompletedDepth(tensor_map, "depth_full_preds", depth_publisher_);
+  
   end = ros::Time::now();
   ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
 }

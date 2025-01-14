@@ -4,6 +4,26 @@
 
 #include "sensor_msgs/Image.h"
 
+
+torch::Tensor UpsampleDepthImage(int target_height, int target_width, const torch::Tensor& depth_image) {
+  // Check input tensor dimensions
+  if (depth_image.dim() != 3 || depth_image.size(0) != 1) {
+    throw std::invalid_argument("Input depth_image must be of shape [1, H, W].");
+  }
+
+  // Define the target output size
+  std::vector<int64_t> size = {target_height, target_width};
+
+  // Use nearest neighbor interpolation to upsample the depth image
+  auto upsampled = torch::nn::functional::interpolate(
+      depth_image.unsqueeze(0),
+      torch::nn::functional::InterpolateFuncOptions()
+          .size(size)
+          .mode(torch::kNearest));
+
+  return upsampled.squeeze(0);
+}
+
 void TensorToVec2D(const torch::Tensor& tensor,
                    std::vector<std::vector<float>>& vec) {
   // Ensure the tensor is on the CPU
