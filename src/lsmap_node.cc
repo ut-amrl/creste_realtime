@@ -378,6 +378,8 @@ void LSMapNode::inference() {
     cv::Mat rot = cv::getRotationMatrix2D(center, map_to_world_[2], 1.0);
     // Decrease the X translation by 10.0 to shift left
     rot.at<double>(0, 2) += map_to_world_[0];
+    // Add Y Translation
+    rot.at<double>(1, 2) += map_to_world_[1];
 
     // 4) warpAffine to rotate + shift
     cv::Mat rotated_8u;
