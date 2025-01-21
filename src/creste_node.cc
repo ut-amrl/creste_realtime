@@ -1,16 +1,19 @@
-#include "lsmap_node.h"
+#include "creste_node.h"
 
 using amrl_msgs::CostmapSrv;
+using std::vector;
 
-namespace lsmap {
+namespace creste {
 
-LSMapNode::LSMapNode(const std::string& config_path,
+CresteNode::CresteNode(const std::string& config_path,
                      const std::string& weights_path)
     : nh_("~"),
       model_(nullptr),
       model_outputs_(nullptr),
+      semantic_history_idx_(0),
+      viz_3d_(false),
       carrot_planner_(nullptr) {
-  ROS_INFO("LSMapNode initialized.");
+  ROS_INFO("CresteNode initialized.");
 
   YAML::Node config;
   try {
@@ -25,7 +28,8 @@ LSMapNode::LSMapNode(const std::string& config_path,
 
   ROS_INFO("--- Loading parameters ---");
   if (!config["model_params"] || !config["planner_params"] ||
-      !config["input_topics"] || !config["output_topics"]) {
+      !config["input_topics"] || !config["output_topics"] ||
+      !config["viz_params"] || !config["map_params"]) {
     ROS_ERROR("Missing required fields in config file.");
     return;
   }
@@ -41,12 +45,14 @@ LSMapNode::LSMapNode(const std::string& config_path,
       config["output_topics"]["depth"].as<std::string>();
   std::string output_traversability_topic =
       config["output_topics"]["traversability"].as<std::string>();
+  std::string output_semantic_elevation_topic =
+      config["output_topics"]["semantic_elevation"].as<std::string>();
 
   // Load map to world extrinsics
   map_to_world_ = config["map_params"]["map_to_world"].as<std::vector<float>>();
 
   // Load Model
-  model_ = std::make_shared<LSMapModel>(model_path);
+  model_ = std::make_shared<CresteModel>(model_path);
   // Load LiDAR Camera extrinsics
   LoadCalibParams(config);
   carrot_planner_ =
@@ -54,20 +60,20 @@ LSMapNode::LSMapNode(const std::string& config_path,
 
   // ServiceServers
   carrot_planner_service = nh_.advertiseService(
-      "/navigation/deep_cost_map_service", &LSMapNode::CostmapCallback, this);
+      "/navigation/deep_cost_map_service", &CresteNode::CostmapCallback, this);
 
   // Subscription to PointCloud2 topic
   ROS_INFO("--- Subscribing to topics ---");
   pointcloud_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>(
-      pointcloud_topic, 10, &LSMapNode::PointCloudCallback, this);
+      pointcloud_topic, 10, &CresteNode::PointCloudCallback, this);
 
   // Subscription to Image topic
   image_subscriber_ = nh_.subscribe<sensor_msgs::CompressedImage>(
-      image_topic, 10, &LSMapNode::CompressedImageCallback, this);
+      image_topic, 10, &CresteNode::CompressedImageCallback, this);
 
   // Subscription to CameraInfo
   camera_info_subscriber_ = nh_.subscribe<sensor_msgs::CameraInfo>(
-      camera_info_topic, 10, &LSMapNode::CameraInfoCallback, this);
+      camera_info_topic, 10, &CresteNode::CameraInfoCallback, this);
 
   // Create fov mask (example: 256 x 256). Adjust as needed.
   fov_mask_ = createTrapezoidalFovMask(256, 256);
@@ -81,11 +87,19 @@ LSMapNode::LSMapNode(const std::string& config_path,
   depth_publisher_ = nh_.advertise<sensor_msgs::Image>(output_depth_topic, 10);
   traversability_publisher_ =
       nh_.advertise<sensor_msgs::Image>(output_traversability_topic, 10);
+  semantic_elevation_publisher_ = 
+      nh_.advertise<sensor_msgs::Image>(output_semantic_elevation_topic, 10);
+
+  // Initialize semantic map queue
+  int history_window = config["viz_params"]["history_window"].as<int>();
+  int static_output_dim = config["model_params"]["static_output_dim"].as<int>();
+  semantic_history_ = torch::zeros({history_window, static_output_dim, 256, 256}).to(torch::kCUDA);
+  viz_3d_ = config["viz_params"]["viz_3d"].as<bool>();
 
   has_rectification_ = false;
 }
 
-void LSMapNode::LoadCalibParams(const YAML::Node& config) {
+void CresteNode::LoadCalibParams(const YAML::Node& config) {
   {
     const auto& node = config["pt2pix"];
     if (!node) {
@@ -114,7 +128,7 @@ void LSMapNode::LoadCalibParams(const YAML::Node& config) {
   }
 }
 
-void LSMapNode::PointCloudCallback(
+void CresteNode::PointCloudCallback(
     const sensor_msgs::PointCloud2ConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
   // ROS_INFO("Received PointCloud2 message");
@@ -128,14 +142,14 @@ void LSMapNode::PointCloudCallback(
   // ROS_INFO("PointCloud size: %lu", pcl_cloud.size());
 }
 
-void LSMapNode::CompressedImageCallback(
+void CresteNode::CompressedImageCallback(
     const sensor_msgs::CompressedImageConstPtr& msg) {
   std::lock_guard<std::mutex> lock(queue_mutex_);
   // ROS_INFO("Received Image message");
   image_queue_.push(msg);
 }
 
-void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
+void CresteNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
   // ROS_INFO("Received CameraInfo message");
 
   camera_info_ = *msg;
@@ -162,7 +176,7 @@ void LSMapNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg) {
   }
 }
 
-std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
+std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
     const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     const sensor_msgs::CompressedImageConstPtr& image_msg) {
   // Convert ROS PointCloud2 message to PCL point cloud
@@ -268,7 +282,7 @@ std::tuple<torch::Tensor, torch::Tensor> LSMapNode::ProcessInputs(
   return std::make_tuple(rgbd_tensor, pixel2point_tensor);
 }
 
-bool LSMapNode::CostmapCallback(CostmapSrv::Request& req,
+bool CresteNode::CostmapCallback(CostmapSrv::Request& req,
                                 CostmapSrv::Response& res) {
   // 1 Perform model inference (Cached)
   std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs;
@@ -301,7 +315,7 @@ bool LSMapNode::CostmapCallback(CostmapSrv::Request& req,
   return true;
 }
 
-void LSMapNode::inference() {
+void CresteNode::inference() {
   sensor_msgs::PointCloud2ConstPtr cloud_msg;
   sensor_msgs::CompressedImageConstPtr image_msg;
 
@@ -397,7 +411,6 @@ void LSMapNode::inference() {
     tensor_map["traversability_cost"] = rotated_tensor;
 }
 
-
   // Store the model outputs
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
@@ -410,7 +423,34 @@ void LSMapNode::inference() {
   PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
   PublishTraversability(tensor_map, "traversability_cost",
                         traversability_publisher_);
+  
+  if (viz_3d_) {
+  // Prepare 3D visualization
+  printf("Computing PCA for semantic elevation map...");
+  semantic_history_[semantic_history_idx_] = tensor_map["static_sem"].index({0}); // [1, F, H, W] -> [F, H, W]
 
+  const auto& sem_rgb_window = computePCA(semantic_history_); // [B, 3, H, W]
+  auto sem_rgb_th = sem_rgb_window[semantic_history_idx_].unsqueeze(0); // [1, 3, H, W]
+  sem_rgb_th.masked_fill_(fov_mask_.logical_not().unsqueeze(0), -0.5f); // Mask out FOV
+  printf("Computed PCA for semantic elevation map.\n");
+  vector<vector<RGBColor> > elevation_rgb_vec;
+
+  const auto& rel_elevation = tensor_map["elevation"].index({0, 0}).unsqueeze(0).unsqueeze(0); // [1, 1, H, W]
+  printf("rel_elevation ndims: %ld\n", rel_elevation.dim());
+  printf("rel_elevation dims: %ld, %ld, %ld\n", rel_elevation.size(0), rel_elevation.size(1), rel_elevation.size(2));
+  // TensorToColorMap(rel_elevation, elevation_rgb_vec);
+   TensorToColorMap(sem_rgb_th, elevation_rgb_vec);
+
+  vector<vector<float> > elevation_vec;
+  // Extract only the elevation tensor from [B, 2, H, W] to [H, W]
+  TensorToVec2D(rel_elevation, elevation_vec);
+  printf("Converted tensors to vectors.\n");
+  // Publish the 3D visualization
+  creste::GenerateAndPublishHeightMapImageStructuredGrid(
+    elevation_vec, elevation_rgb_vec, semantic_elevation_publisher_
+  );
+  semantic_history_idx_ = (semantic_history_idx_ + 1) % semantic_history_.sizes()[0];
+  }
   // Upsample depth iamge
   // const int target_height = camera_info_.height;
   // const int target_width = camera_info_.width;
@@ -421,7 +461,7 @@ void LSMapNode::inference() {
   ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
 }
 
-void LSMapNode::run() {
+void CresteNode::run() {
   sensor_msgs::PointCloud2ConstPtr cloud_msg;
   sensor_msgs::CompressedImageConstPtr image_msg;
 
@@ -477,10 +517,14 @@ void LSMapNode::run() {
       } else {
         // If not within 100ms, drop the older message
         if (cloud_time_ns < image_time_ns) {
+          ROS_INFO("Dropping cloud message with timestamp %ld", cloud_time_ns);
           cloud_queue_.pop();  // Drop the older cloud message
         } else {
+          ROS_INFO("Dropping image message with timestamp %ld", image_time_ns);
           image_queue_.pop();  // Drop the older image message
         }
+        
+        return; // early return if we dropped a message
       }
     }
   }
@@ -496,4 +540,4 @@ void LSMapNode::run() {
   this->inference();
 }
 
-}  // namespace lsmap
+}  // namespace creste

@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     vim \
     unzip && \
+    xvfb && \
     rm -rf /var/lib/apt/lists/*
 
 #-----------------------------------------------------------
@@ -81,6 +82,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev &
 #-----------------------------------------------------------
 RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
 RUN echo "export ROS_PACKAGE_PATH=/home/creste_realtime:/home/amrl_msgs:\$ROS_PACKAGE_PATH" >> ~/.bashrc
+# RUN echo "export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH" >> ~/.bashrc
 
 # Note: In ROS 1, you typically use catkin_make or catkin tools
 # We won't build here by default, because you may want to build interactively.

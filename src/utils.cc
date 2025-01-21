@@ -4,6 +4,9 @@
 
 #include "sensor_msgs/Image.h"
 
+using namespace torch::indexing;
+
+namespace creste {
 
 torch::Tensor UpsampleDepthImage(int target_height, int target_width, const torch::Tensor& depth_image) {
   // Check input tensor dimensions
@@ -88,8 +91,6 @@ cv::Mat TensorToMat(const torch::Tensor& tensor) {
   return scaled_8u;
 }
 
-namespace lsmap {
-
 std::vector<float> linspace(float start, float end, int num) {
   std::vector<float> result;
 
@@ -107,32 +108,47 @@ std::vector<float> linspace(float start, float end, int num) {
   return result;
 }
 
-std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
-                                              int components) {
-  // Example PCA code. Logging replaced with ROS_INFO where needed.
+// Utility to compute PCA reduction from [B,F,H,W] to [1,3,H,W]
+torch::Tensor computePCA(const torch::Tensor& features) {
+    // Ensure the input is on CPU and of type float for PCA computation.
+    // auto features_cpu = features.to(torch::kFloat32).cpu();
 
-  at::Tensor cpu_tensor = input_tensor.to(at::kCPU).to(torch::kFloat32);
+    // features_cpu shape: [1, F, H, W]
+    auto sizes = features.sizes();
+    int64_t B = sizes[0], F = sizes[1], H = sizes[2], W = sizes[3];
+    printf("B: %ld, F: %ld, H: %ld, W: %ld\n", B, F, H, W);
 
-  // [B, C, H, W] -> flatten
-  auto flattened =
-      cpu_tensor.permute({0, 2, 3, 1}).reshape({-1, cpu_tensor.size(1)});
-  auto mean = flattened.mean(0, /*keepdim=*/true);
-  auto centered = flattened - mean;
-  auto covariance_matrix =
-      at::mm(centered.t(), centered) / (flattened.size(0) - 1);
+    // Reshape to [F, N] where N = H*W
+    // auto X = features_cpu.permute(1, 0, 2, 3).view({F, B * H * W});
+    auto X = features.permute({1, 0, 2, 3}).reshape({F, B * H * W});
 
-  auto eigen = torch::linalg::eigh(covariance_matrix, "U");
-  auto eigenvalues = std::get<0>(eigen);
-  auto eigenvectors = std::get<1>(eigen);
+    // Center the data (subtract the mean for each feature channel)
+    auto mean = X.mean(1, /*keepdim=*/true);
+    X = X - mean;
 
-  // Top 'components'
-  auto pca_matrix = eigenvectors.narrow(1, 0, components);
-  auto reduced_data = at::mm(centered, pca_matrix);
+    // Compute covariance matrix of shape [F, F]
+    auto cov = torch::mm(X, X.t()) / static_cast<float>(H * W - 1);
 
-  return std::make_tuple(reduced_data, pca_matrix);
+    // Compute eigenvalues and eigenvectors of the covariance matrix
+    // Note: torch::linalg_eigh returns eigenvalues in ascending order
+    auto eigen = torch::linalg_eigh(cov);
+    auto eigenvalues = std::get<0>(eigen);
+    auto eigenvectors = std::get<1>(eigen);
+
+    // Select the top 3 eigenvectors corresponding to the largest eigenvalues
+    // Since eigenvalues are in ascending order, the top eigenvectors are at the end
+    auto top_eigenvectors = eigenvectors.index({Slice(), Slice(F - 3, F)}); // shape [F,3]
+
+    // Project the original centered data onto the top eigenvectors
+    auto projected = torch::mm(top_eigenvectors.t(), X); // shape [3, H*W]
+
+    // Reshape result back to [3, B, H, W] -> [B, 3, H, W]
+    auto reduced = projected.view({3, B, H, W}).permute({1, 0, 2, 3});
+    
+    return reduced;
 }
 
-// void LSMapNode::SaveDepthImage(const cv::Mat& depthMatrix,
+// void CresteNode::SaveDepthImage(const cv::Mat& depthMatrix,
 //                                const std::string& filename) {
 //   if (depthMatrix.empty()) {
 //     ROS_ERROR("Invalid input matrix for save_depth_image.");
@@ -222,75 +238,75 @@ void saveElevationImage(
   }
 }
 
-void saveSemanticImage(
-    const std::unordered_map<std::string, torch::Tensor>& output,
-    const std::string& key) {
-  if (output.count(key) <= 0) return;
+// void saveSemanticImage(
+//     const std::unordered_map<std::string, torch::Tensor>& output,
+//     const std::string& key) {
+//   if (output.count(key) <= 0) return;
 
-  // 2) PCA decomposition of a feature map
-  // ------------------------------------------------
-  // Example: "traversability" or any other feature map
-  // (Assume it's shaped [1, C, H, W]. We do PCA -> top 3 dims -> visualize.)
-  const auto& feature_tensor = output.at(key);
-  // shape e.g. [1, C, H, W]
+//   // 2) PCA decomposition of a feature map
+//   // ------------------------------------------------
+//   // Example: "traversability" or any other feature map
+//   // (Assume it's shaped [1, C, H, W]. We do PCA -> top 3 dims -> visualize.)
+//   const auto& feature_tensor = output.at(key);
+//   // shape e.g. [1, C, H, W]
 
-  // We’ll reuse computePCA(...) to get top 3 principal components
-  int components = 3;
-  auto [pca_result, pca_matrix] = computePCA(feature_tensor, components);
-  // pca_result is shape [N, 3], where N = H*W in the typical flatten
-  // approach Reshape to [1, 3, H, W]
+//   // We’ll reuse computePCA(...) to get top 3 principal components
+//   int components = 3;
+//   auto [pca_result, pca_matrix] = computePCA(feature_tensor, components);
+//   // pca_result is shape [N, 3], where N = H*W in the typical flatten
+//   // approach Reshape to [1, 3, H, W]
 
-  // You might need the original height & width from the feature_tensor
-  int batch = feature_tensor.size(0);
-  // int featC = feature_tensor.size(1);
-  int featH = feature_tensor.size(2);
-  int featW = feature_tensor.size(3);
-  // pca_result: shape [N, 3], N = featH*featW if batch=1
+//   // You might need the original height & width from the feature_tensor
+//   int batch = feature_tensor.size(0);
+//   // int featC = feature_tensor.size(1);
+//   int featH = feature_tensor.size(2);
+//   int featW = feature_tensor.size(3);
+//   // pca_result: shape [N, 3], N = featH*featW if batch=1
 
-  if (batch != 1) {
-    ROS_WARN("Feature map has batch=%d, skipping PCA image generation", batch);
-    return;
-  }
+//   if (batch != 1) {
+//     ROS_WARN("Feature map has batch=%d, skipping PCA image generation", batch);
+//     return;
+//   }
 
-  // reshape [N,3] -> [1, 3, H, W]
-  pca_result = pca_result.reshape({1, 3, featH, featW});
+//   // reshape [N,3] -> [1, 3, H, W]
+//   pca_result = pca_result.reshape({1, 3, featH, featW});
 
-  // Scale each channel to [0,1] (for color)
-  auto minv = pca_result.min().item<float>();
-  auto maxv = pca_result.max().item<float>();
-  auto pca_scaled = (pca_result - minv) / (maxv - minv);  // now in [0,1]
+//   // Scale each channel to [0,1] (for color)
+//   auto minv = pca_result.min().item<float>();
+//   auto maxv = pca_result.max().item<float>();
+//   auto pca_scaled = (pca_result - minv) / (maxv - minv);  // now in [0,1]
 
-  // Move to CPU float
-  pca_scaled = pca_scaled.to(at::kCPU).to(torch::kFloat32);
+//   // Move to CPU float
+//   pca_scaled = pca_scaled.to(at::kCPU).to(torch::kFloat32);
 
-  // Convert to CV_8UC3 (assuming the shape is [1, 3, H, W])
-  const float* pca_data = pca_scaled.data_ptr<float>();
-  // We'll build an interleaved CV_32FC3 first, then convert to CV_8UC3
-  cv::Mat pca_mat_32f(featH, featW, CV_32FC3);
-  // We need to reorder the channels because we have [3, H, W].
-  // We'll copy each pixel from pca_data => pca_mat_32f.
-  for (int y = 0; y < featH; ++y) {
-    for (int x = 0; x < featW; ++x) {
-      int idx = (y * featW + x);
-      float c0 = pca_data[0 * featH * featW + idx];  // channel 0
-      float c1 = pca_data[1 * featH * featW + idx];  // channel 1
-      float c2 = pca_data[2 * featH * featW + idx];  // channel 2
-      pca_mat_32f.at<cv::Vec3f>(y, x) = cv::Vec3f(c0, c1, c2);
-    }
-  }
+//   // Convert to CV_8UC3 (assuming the shape is [1, 3, H, W])
+//   const float* pca_data = pca_scaled.data_ptr<float>();
+//   // We'll build an interleaved CV_32FC3 first, then convert to CV_8UC3
+//   cv::Mat pca_mat_32f(featH, featW, CV_32FC3);
+//   // We need to reorder the channels because we have [3, H, W].
+//   // We'll copy each pixel from pca_data => pca_mat_32f.
+//   for (int y = 0; y < featH; ++y) {
+//     for (int x = 0; x < featW; ++x) {
+//       int idx = (y * featW + x);
+//       float c0 = pca_data[0 * featH * featW + idx];  // channel 0
+//       float c1 = pca_data[1 * featH * featW + idx];  // channel 1
+//       float c2 = pca_data[2 * featH * featW + idx];  // channel 2
+//       pca_mat_32f.at<cv::Vec3f>(y, x) = cv::Vec3f(c0, c1, c2);
+//     }
+//   }
 
-  // Convert [0,1] float -> [0,255] 8-bit
-  cv::Mat pca_mat_8u;
-  pca_mat_32f.convertTo(pca_mat_8u, CV_8UC3, 255.0);
+//   // Convert [0,1] float -> [0,255] 8-bit
+//   cv::Mat pca_mat_8u;
+//   pca_mat_32f.convertTo(pca_mat_8u, CV_8UC3, 255.0);
 
-  // Save as an RGB image
-  std::string pca_filename = key + ".png";
-  if (!cv::imwrite(pca_filename, pca_mat_8u)) {
-    ROS_ERROR("Failed to save %s", pca_filename.c_str());
-  } else {
-    ROS_INFO("Saved PCA-based feature image to %s", pca_filename.c_str());
-  }
-}
+//   // Save as an RGB image
+//   std::string pca_filename = key + ".png";
+//   if (!cv::imwrite(pca_filename, pca_mat_8u)) {
+//     ROS_ERROR("Failed to save %s", pca_filename.c_str());
+//   } else {
+//     ROS_INFO("Saved PCA-based feature image to %s", pca_filename.c_str());
+//   }
+// }
 
 void PublishTraversability(
     const std::unordered_map<std::string, torch::Tensor>& output,
@@ -436,4 +452,4 @@ void PublishCompletedDepth(
            depth_pub.getTopic().c_str());
 }
 
-}  // namespace lsmap
+}  // namespace creste

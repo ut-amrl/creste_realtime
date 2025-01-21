@@ -15,7 +15,7 @@
 
 using math_util::Clamp;
 using math_util::Sq;
-namespace lsmap {
+namespace creste {
 
 struct PathPoint {
   float x, y, theta;
@@ -579,6 +579,6 @@ class CarrotPlanner {
   }
 };
 
-}  // namespace lsmap
+}  // namespace freste
 
 #endif  // PLANNER_H_

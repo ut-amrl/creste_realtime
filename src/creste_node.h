@@ -1,5 +1,5 @@
-#ifndef LSMAP_NODE_H
-#define LSMAP_NODE_H
+#ifndef CRESTE_NODE_H
+#define CRESTE_NODE_H
 
 #include <omp.h>
 #include <torch/script.h>
@@ -36,18 +36,19 @@
 #include <vector>
 
 // Local headers
-#include "lsmap.h"
+#include "creste.h"
 #include "planner.h"
 #include "shared/util/timer.h"
 #include "utils.h"
+#include "visualization.h"
 
 using amrl_msgs::CostmapSrv;
 
-namespace lsmap {
+namespace creste {
 
-class LSMapNode {
+class CresteNode {
  public:
-  LSMapNode(const std::string& config_path, const std::string& weights_path);
+  CresteNode(const std::string& config_path, const std::string& weights_path);
 
   /// \brief Main processing function called periodically in main()
   void run();
@@ -88,6 +89,7 @@ class LSMapNode {
   ros::Publisher image_publisher_;
   ros::Publisher depth_publisher_;
   ros::Publisher traversability_publisher_;
+  ros::Publisher semantic_elevation_publisher_;
 
   // === ROS messages ===
   sensor_msgs::CameraInfo camera_info_;
@@ -111,15 +113,18 @@ class LSMapNode {
   std::mutex latest_msg_mutex_;
 
   // === Model Inference ===
-  std::shared_ptr<lsmap::LSMapModel> model_;
+  std::shared_ptr<CresteModel> model_;
   std::mutex model_outputs_mutex_;
   std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
       model_outputs_;
   torch::Tensor fov_mask_;
+  torch::Tensor semantic_history_; // [B, 1, H, W]
+  int semantic_history_idx_;
+  bool viz_3d_;
 
   // === Planners ===
   std::shared_ptr<CarrotPlanner> carrot_planner_;
 };
-}  // namespace lsmap
+}  // namespace creste
 
-#endif  // LSMAP_NODE_H
+#endif  // CRESTE_NODE_H

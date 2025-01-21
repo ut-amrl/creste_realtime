@@ -5,7 +5,7 @@
   <arg name="weights_path" default="$(find
 creste_realtime)/traversability_model_trace_distill128_nocfs.pt" />
 
-  <!-- Launch the lsmap_node with the provided arguments -->
+  <!-- Launch the creste_node with the provided arguments -->
   <node pkg="creste_realtime" type="creste_node" name="creste_node"
 output="screen"
         args="--config_path $(arg config_path) --weights_path $(arg

@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace creste {
+
 struct CalibInfo {
   int rows;
   int cols;
@@ -104,20 +106,17 @@ inline torch::Tensor createTrapezoidalFovMask(int H, int W,
   return mask_tensor;
 }
 
-namespace lsmap {
-
 std::vector<float> linspace(float start, float end, int num);
 
-std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
-                                              int components);
+torch::Tensor computePCA(const torch::Tensor& features);
 
 void saveElevationImage(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key);
 
-void saveSemanticImage(
-    const std::unordered_map<std::string, torch::Tensor>& output,
-    const std::string& key);
+// void saveSemanticImage(
+//     const std::unordered_map<std::string, torch::Tensor>& output,
+//     const std::string& key);
 
 void PublishTraversability(
     const std::unordered_map<std::string, torch::Tensor>& output,
@@ -127,6 +126,6 @@ void PublishCompletedDepth(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key, ros::Publisher& depth_pub);
 
-}  // namespace lsmap
+}  // namespace creste
 
 #endif  // UTILS_H

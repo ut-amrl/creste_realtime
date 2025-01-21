@@ -1,12 +1,14 @@
 model_params:
   weights_path: "./traversability_model_trace_distill128_cfs.pt"
+  static_output_dim: 32
 map_params:
   resolution: 0.1
   height: 25.6
   width: 25.6
   origin_x: 12.8
   origin_y: 12.8
-  map_to_world: [0.0, 5.0, -2.0]
+  # map_to_world: [0.0, 5.0, -2.0]
+  map_to_world: [0.0, 0.0, 0.0]
 planner_params:
   max_v: 1.0
   # max_w: 1.57079
@@ -29,6 +31,10 @@ input_topics:
 output_topics:
   depth: "/stereo/left/image_raw/depth"
   traversability: "/creste/bev/traversability"
+  semantic_elevation: "/creste/3d/semantic_elevation"
+viz_params:
+  history_window: 3
+  viz_3d: False
 
 pt2pix: # LiDAR to Rectified Camera Pixels
   rows: 3
