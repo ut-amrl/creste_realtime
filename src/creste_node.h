@@ -100,7 +100,7 @@ class CresteNode {
 
   // Remap matrices for OpenCV
   cv::Mat map1_, map2_;
-  std::vector<float> map_to_world_;
+  std::vector<float> map_to_base_link_;
 
   // === Buffers/queues ===
   std::queue<sensor_msgs::PointCloud2ConstPtr> cloud_queue_;

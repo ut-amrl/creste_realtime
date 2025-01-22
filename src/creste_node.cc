@@ -49,7 +49,7 @@ CresteNode::CresteNode(const std::string& config_path,
       config["output_topics"]["semantic_elevation"].as<std::string>();
 
   // Load map to world extrinsics
-  map_to_world_ = config["map_params"]["map_to_world"].as<std::vector<float>>();
+  map_to_base_link_ = config["map_params"]["map_to_base_link"].as<std::vector<float>>();
 
   // Load Model
   model_ = std::make_shared<CresteModel>(model_path);
@@ -389,11 +389,11 @@ void CresteNode::inference() {
     //    - Use angle = -4 for clockwise rotation in OpenCV.
     //    - Then adjust the last column of the rotation matrix to shift left.
     cv::Point2f center(cols / 2.0f, rows / 2.0f);
-    cv::Mat rot = cv::getRotationMatrix2D(center, map_to_world_[2], 1.0);
+    cv::Mat rot = cv::getRotationMatrix2D(center, map_to_base_link_[2], 1.0);
     // Decrease the X translation by 10.0 to shift left
-    rot.at<double>(0, 2) += map_to_world_[0];
+    rot.at<double>(0, 2) += map_to_base_link_[0];
     // Add Y Translation
-    rot.at<double>(1, 2) += map_to_world_[1];
+    rot.at<double>(1, 2) += map_to_base_link_[1];
 
     // 4) warpAffine to rotate + shift
     cv::Mat rotated_8u;
