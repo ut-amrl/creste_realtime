@@ -34,7 +34,7 @@ output_topics:
   semantic_elevation: "/creste/3d/semantic_elevation"
 viz_params:
   history_window: 3
-  viz_3d: True
+  viz_3d: False
 
 pt2pix: # LiDAR to Rectified Camera Pixels (Full resolution)
   rows: 3

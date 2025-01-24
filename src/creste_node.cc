@@ -35,7 +35,7 @@ CresteNode::CresteNode(const std::string& config_path,
   }
   std::string model_path =
       config["model_params"]["weights_path"].as<std::string>();
-  model_path = model_path.empty() ? weights_path : model_path;
+  model_path = weights_path.empty() ? model_path : weights_path;
   std::string image_topic = config["input_topics"]["image"].as<std::string>();
   std::string pointcloud_topic =
       config["input_topics"]["pointcloud"].as<std::string>();
