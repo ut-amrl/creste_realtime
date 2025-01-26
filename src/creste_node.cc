@@ -342,10 +342,12 @@ void CresteNode::inference() {
   // 3) Process the resulting map(s)
   start = ros::Time::now();
   std::unordered_map<std::string, torch::Tensor> tensor_map;
-  tensor_map["elevation"] = output.at("elevation_preds");
-  tensor_map["static_sem"] = output.at("inpainting_sam_preds");  // [1, F, H, W]
-  tensor_map["dynamic_sem"] =
+  if (viz_3d_) {
+    tensor_map["elevation"] = output.at("elevation_preds");
+    tensor_map["static_sem"] = output.at("inpainting_sam_preds");  // [1, F, H, W]
+    tensor_map["dynamic_sem"] =
       output.at("inpainting_sam_dynamic_preds");                // [1, F, H, W]
+  }
   tensor_map["depth_preds"] = output.at("depth_preds_metric");  // [1, Hd, Wd]
   tensor_map["traversability"] =
       output.at("traversability_preds_full");  // [1, 1, H, W]
@@ -366,10 +368,12 @@ void CresteNode::inference() {
   cost_map.masked_fill_(fov_mask_.logical_not(), 1.0f);
   tensor_map["traversability_cost"] = cost_map;
 
-  // Mask out the FOV
-  tensor_map["static_sem"] = tensor_map["static_sem"] * fov_mask_;
-  tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
-  tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
+  if (viz_3d_) {
+    // Mask out the FOV
+    tensor_map["static_sem"] = tensor_map["static_sem"] * fov_mask_;
+    tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
+    tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
+  }
 
   {
     // 1) Move costmap to CPU & convert [0,1] float -> [0,255] uint8

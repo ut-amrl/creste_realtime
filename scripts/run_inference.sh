@@ -17,11 +17,15 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      # Skip unknown options
+      # Skip unknown options, Error on unknown arguments
+      echo "Unknown option: $1"
       shift
       ;;
   esac
 done
+
+# Debug Messages
+echo "Running inference with weights path: $WEIGHTS_PATH"
 
 # Launch the ROS node with specified flags
 rosrun creste_realtime creste_node --config_path="$CONFIG_PATH" --weights_path="$WEIGHTS_PATH"
