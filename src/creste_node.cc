@@ -364,6 +364,9 @@ void CresteNode::inference() {
     cost_map.fill_(1.0f);  // Uniform cost map
   }
 
+  // Clamp costs to [0, 244/255]
+  cost_map.clamp_(0.0f, 244.0f / 255.0f);
+
   // Set cost outside FOV to 1.0f
   cost_map.masked_fill_(fov_mask_.logical_not(), 1.0f);
   tensor_map["traversability_cost"] = cost_map;
