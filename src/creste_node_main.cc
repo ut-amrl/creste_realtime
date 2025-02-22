@@ -7,7 +7,7 @@
 // Define a command-line flag for the configuration path
 DEFINE_string(config_path, "./config/creste.yaml",
               "Path to the configuration file");
-DEFINE_string(weights_path, "./traversability_model._trace_distill128_cfs.pt",
+DEFINE_string(weights_path, "",
               "Path to the model weights file");
 
 int main(int argc, char** argv) {
