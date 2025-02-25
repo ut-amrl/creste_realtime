@@ -212,7 +212,7 @@ void CresteNode::run() {
 
     {
       std::lock_guard<std::mutex> lk(cam.queue_mutex);
-      if (cam.image_queue.empty()) {
+      if (cam.image_queue.empty() || !cam.has_rectification) {
         all_cameras_have_data = false;
         break;
       }
@@ -325,6 +325,12 @@ void CresteNode::inference() {
   auto inputs = ProcessInputs(cloud_msg, camera_imgs);
   ros::Time end = ros::Time::now();
   ROS_INFO("Projection time: %f seconds", (end - start).toSec());
+
+  // 1.5) Early return if inputs are empty
+  if (std::get<0>(inputs).sizes().empty()) {
+    ROS_ERROR("Empty inputs after projection!");
+    return;
+  }
 
   // 2) Inference
   start = ros::Time::now();
