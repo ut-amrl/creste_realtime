@@ -7,11 +7,11 @@
 #include <string>
 #include <unordered_map>
 
-namespace lsmap {
+namespace creste {
 
-class LSMapModel {
+class CresteModel {
  public:
-  LSMapModel(const std::string& model_path) {
+  CresteModel(const std::string& model_path) {
     try {
       // Load the TorchScript model onto CUDA
       model_ = torch::jit::load(model_path, torch::kCUDA);
@@ -48,4 +48,4 @@ class LSMapModel {
   torch::jit::script::Module model_;
 };
 
-}  // namespace lsmap
+}  // namespace creste

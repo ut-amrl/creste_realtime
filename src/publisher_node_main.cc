@@ -28,7 +28,7 @@ rosrun creste_realtime data_publisher <image_directory> <pointcloud_directory>
 
 namespace fs = boost::filesystem;
 
-namespace LSMap {
+namespace creste {
 
 class DataPublisher {
  public:
@@ -338,7 +338,7 @@ class DataPublisher {
   std_msgs::Float32MultiArray pixel_to_point_;
 };
 
-}  // namespace LSMap
+}  // namespace creste
 
 int main(int argc, char* argv[]) {
   ros::init(argc, argv, "data_publisher");
@@ -357,8 +357,8 @@ int main(int argc, char* argv[]) {
   int start_frame = std::stoi(argv[4]);
   double rate = std::stod(argv[5]);
 
-  LSMap::DataPublisher publisher(nh, image_dir, pointcloud_dir, sequence,
-                                 start_frame, rate);
+  creste::DataPublisher publisher(nh, image_dir, pointcloud_dir, sequence,
+                                  start_frame, rate);
 
   ros::spin();
   return 0;

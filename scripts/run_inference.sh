@@ -2,7 +2,7 @@
 
 # Default paths for config and weights
 CONFIG_PATH="./config/creste.yaml"
-WEIGHTS_PATH="./traversability_model_trace_distill128_cfs.pt"
+WEIGHTS_PATH=""
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -17,11 +17,19 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      # Skip unknown options
+      # Error on unknown arguments (or skip them, depending on your preference)
+      echo "Unknown option: $1"
       shift
       ;;
   esac
 done
 
-# Launch the ROS node with specified flags
-rosrun creste_realtime creste_node --config_path="$CONFIG_PATH" --weights_path="$WEIGHTS_PATH"
+if [[ -n "$WEIGHTS_PATH" ]]; then
+  # If a weights_path was specified
+  echo "Running inference with weights path: $WEIGHTS_PATH"
+  rosrun creste_realtime creste_node --config_path="$CONFIG_PATH" --weights_path="$WEIGHTS_PATH"
+else
+  # If no weights_path is given, omit it entirely
+  echo "Running inference with default config only (no weights path)."
+  rosrun creste_realtime creste_node --config_path="$CONFIG_PATH"
+fi

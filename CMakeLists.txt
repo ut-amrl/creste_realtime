@@ -40,6 +40,7 @@ find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(VTK REQUIRED)
 
 # If you need GridMap libs (grid_map_core, grid_map_ros, etc.), 
 # you can locate them as normal ROS packages:
@@ -63,6 +64,9 @@ set(libs
   yaml-cpp
 )
 
+# Include the VTK use file, which sets up many VTK-specific variables and macros.
+include(${VTK_USE_FILE})
+
 #-----------------------------------------------------------------------------
 # Include directories
 #-----------------------------------------------------------------------------
@@ -77,6 +81,7 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
   # ${grid_map_core_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIRS} 
+  ${VTK_INCLUDE_DIRS}
 )
 
 add_subdirectory(src/shared)
@@ -94,12 +99,13 @@ rosbuild_gensrv()
 # In rosbuild, we typically use the macro: rosbuild_add_executable
 #-----------------------------------------------------------------------------
 rosbuild_add_executable(creste_node
-  src/lsmap_node_main.cc
-  src/lsmap_node.cc
+  src/creste_node_main.cc
+  src/creste_node.cc
   src/utils.cc
+  src/visualization.cc
 )
 
-# Link libraries for lsmap_node
+# Link libraries for creste_node
 target_link_libraries(creste_node
   ${libs}
   ${OpenCV_LIBS}
@@ -121,10 +127,25 @@ rosbuild_add_executable(astar_test
   src/astar.cc
 )
 
+rosbuild_add_executable(elevation_test
+  src/elevation_test.cc
+  src/visualization.cc
+)
+
 target_link_libraries(publisher_node
   ${libs}
   ${OpenCV_LIBS}
   ${PCL_LIBRARIES}
+  ${VTK_LIBRARIES}
+  # etc.
+)
+
+target_link_libraries(elevation_test
+  ${libs}
+  ${OpenCV_LIBS}
+  ${PCL_LIBRARIES}
+  ${VTK_LIBRARIES}
+  ${TORCH_LIBRARIES}
   # etc.
 )
 

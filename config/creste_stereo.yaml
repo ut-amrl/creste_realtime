@@ -1,7 +1,7 @@
 model_params:
-  weights_path: "./traversability_model_trace_distill128_cfs.pt"
+  weights_path: "./traversability_model_trace_distill128_cfs_stereorgb.pt"
   static_output_dim: 32
-  modality: "rgbd"
+  modality: "stereo"
 map_params:
   resolution: 0.1
   height: 25.6
@@ -28,9 +28,9 @@ planner_params:
 input_topics: # Uses these to determine
   left_image: "/stereo/left/image_raw/compressed"
   left_camera_info: "/stereo/left/camera_info"
-  right_image: ""
-  right_camera_info: ""
-  pointcloud: "/ouster/points"
+  right_image: "/stereo/right/image_raw/compressed"
+  right_camera_info: "/stereo/right/camera_info"
+  pointcloud: ""
 output_topics:
   depth: "/stereo/left/image_raw/depth"
   traversability: "/creste/bev/traversability"

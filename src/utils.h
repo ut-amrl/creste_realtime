@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace creste {
+
 struct CalibInfo {
   int rows;
   int cols;
@@ -49,12 +51,17 @@ struct Pose2D {
   Pose2D(float x, float y, float theta) : x(x), y(y), theta(theta) {}
 };
 
+torch::Tensor UpsampleDepthImage(int target_height, int target_width,
+                                 const torch::Tensor& depth_image);
+
 void TensorToVec2D(const torch::Tensor& tensor,
                    std::vector<std::vector<float>>& vec);
 
+cv::Mat TensorToMat(const torch::Tensor& tensor);
+
 inline torch::Tensor createTrapezoidalFovMask(int H, int W,
-                                              float fovTopAngle = 70,
-                                              float fovBottomAngle = 70,
+                                              float fovTopAngle = 80,
+                                              float fovBottomAngle = 80,
                                               float near = 0, float far = 200) {
   // Initialize the mask
   torch::Tensor mask_tensor = torch::zeros({H, W}, torch::kBool);  // False
@@ -100,20 +107,17 @@ inline torch::Tensor createTrapezoidalFovMask(int H, int W,
   return mask_tensor;
 }
 
-namespace lsmap {
-
 std::vector<float> linspace(float start, float end, int num);
 
-std::tuple<at::Tensor, at::Tensor> computePCA(const at::Tensor& input_tensor,
-                                              int components);
+torch::Tensor computePCA(const torch::Tensor& features);
 
 void saveElevationImage(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key);
 
-void saveSemanticImage(
-    const std::unordered_map<std::string, torch::Tensor>& output,
-    const std::string& key);
+// void saveSemanticImage(
+//     const std::unordered_map<std::string, torch::Tensor>& output,
+//     const std::string& key);
 
 void PublishTraversability(
     const std::unordered_map<std::string, torch::Tensor>& output,
@@ -123,6 +127,6 @@ void PublishCompletedDepth(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key, ros::Publisher& depth_pub);
 
-}  // namespace lsmap
+}  // namespace creste
 
 #endif  // UTILS_H
