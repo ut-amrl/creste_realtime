@@ -358,7 +358,7 @@ int main(int argc, char* argv[]) {
   double rate = std::stod(argv[5]);
 
   creste::DataPublisher publisher(nh, image_dir, pointcloud_dir, sequence,
-                                 start_frame, rate);
+                                  start_frame, rate);
 
   ros::spin();
   return 0;

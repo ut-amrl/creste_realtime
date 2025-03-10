@@ -1,7 +1,8 @@
 #ifndef PLANNER_H_
 #define PLANNER_H_
 
-#include <torch/torch.h>
+#include <ros/ros.h>
+#include <sensor_msgs/Image.h>
 
 #include <cmath>
 #include <iostream>
@@ -579,6 +580,6 @@ class CarrotPlanner {
   }
 };
 
-}  // namespace freste
+}  // namespace creste
 
 #endif  // PLANNER_H_

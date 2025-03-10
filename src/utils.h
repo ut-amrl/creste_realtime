@@ -51,7 +51,8 @@ struct Pose2D {
   Pose2D(float x, float y, float theta) : x(x), y(y), theta(theta) {}
 };
 
-torch::Tensor UpsampleDepthImage(int target_height, int target_width, const torch::Tensor& depth_image);
+torch::Tensor UpsampleDepthImage(int target_height, int target_width,
+                                 const torch::Tensor& depth_image);
 
 void TensorToVec2D(const torch::Tensor& tensor,
                    std::vector<std::vector<float>>& vec);

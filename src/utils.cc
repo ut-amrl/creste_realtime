@@ -8,10 +8,12 @@ using namespace torch::indexing;
 
 namespace creste {
 
-torch::Tensor UpsampleDepthImage(int target_height, int target_width, const torch::Tensor& depth_image) {
+torch::Tensor UpsampleDepthImage(int target_height, int target_width,
+                                 const torch::Tensor& depth_image) {
   // Check input tensor dimensions
   if (depth_image.dim() != 3 || depth_image.size(0) != 1) {
-    throw std::invalid_argument("Input depth_image must be of shape [1, H, W].");
+    throw std::invalid_argument(
+        "Input depth_image must be of shape [1, H, W].");
   }
 
   // Define the target output size
@@ -20,9 +22,8 @@ torch::Tensor UpsampleDepthImage(int target_height, int target_width, const torc
   // Use nearest neighbor interpolation to upsample the depth image
   auto upsampled = torch::nn::functional::interpolate(
       depth_image.unsqueeze(0),
-      torch::nn::functional::InterpolateFuncOptions()
-          .size(size)
-          .mode(torch::kNearest));
+      torch::nn::functional::InterpolateFuncOptions().size(size).mode(
+          torch::kNearest));
 
   return upsampled.squeeze(0);
 }
@@ -51,7 +52,9 @@ void TensorToVec2D(const torch::Tensor& tensor,
 
 cv::Mat TensorToMat(const torch::Tensor& tensor) {
   // Ensure the tensor is on the CPU
-  torch::Tensor tensor_cpu = tensor.to(torch::kCPU).squeeze();  // Remove the batch dimension if present
+  torch::Tensor tensor_cpu =
+      tensor.to(torch::kCPU)
+          .squeeze();  // Remove the batch dimension if present
 
   // Get the number of rows and columns (assuming single-channel image)
   int rows = tensor_cpu.size(0);
@@ -63,7 +66,9 @@ cv::Mat TensorToMat(const torch::Tensor& tensor) {
   }
 
   // Create a single-channel 1 byte int matrix
-  auto mat = cv::Mat(rows, cols, CV_32FC1);  // CV_32FC1 corresponds to 32-bit float, single-channel
+  auto mat = cv::Mat(
+      rows, cols,
+      CV_32FC1);  // CV_32FC1 corresponds to 32-bit float, single-channel
 
   // Copy the data from the tensor to the OpenCV mat
   auto accessor = tensor_cpu.accessor<float, 2>();
@@ -85,7 +90,7 @@ cv::Mat TensorToMat(const torch::Tensor& tensor) {
     mat.convertTo(scaled_8u, CV_8UC1, 1.0, 0.0);
   } else {
     mat.convertTo(scaled_8u, CV_8UC1, 255.0 / (max_val - min_val),
-                       -255.0 * min_val / (max_val - min_val));
+                  -255.0 * min_val / (max_val - min_val));
   }
 
   return scaled_8u;
@@ -110,42 +115,44 @@ std::vector<float> linspace(float start, float end, int num) {
 
 // Utility to compute PCA reduction from [B,F,H,W] to [1,3,H,W]
 torch::Tensor computePCA(const torch::Tensor& features) {
-    // Ensure the input is on CPU and of type float for PCA computation.
-    // auto features_cpu = features.to(torch::kFloat32).cpu();
+  // Ensure the input is on CPU and of type float for PCA computation.
+  // auto features_cpu = features.to(torch::kFloat32).cpu();
 
-    // features_cpu shape: [1, F, H, W]
-    auto sizes = features.sizes();
-    int64_t B = sizes[0], F = sizes[1], H = sizes[2], W = sizes[3];
-    printf("B: %ld, F: %ld, H: %ld, W: %ld\n", B, F, H, W);
+  // features_cpu shape: [1, F, H, W]
+  auto sizes = features.sizes();
+  int64_t B = sizes[0], F = sizes[1], H = sizes[2], W = sizes[3];
+  printf("B: %ld, F: %ld, H: %ld, W: %ld\n", B, F, H, W);
 
-    // Reshape to [F, N] where N = H*W
-    // auto X = features_cpu.permute(1, 0, 2, 3).view({F, B * H * W});
-    auto X = features.permute({1, 0, 2, 3}).reshape({F, B * H * W});
+  // Reshape to [F, N] where N = H*W
+  // auto X = features_cpu.permute(1, 0, 2, 3).view({F, B * H * W});
+  auto X = features.permute({1, 0, 2, 3}).reshape({F, B * H * W});
 
-    // Center the data (subtract the mean for each feature channel)
-    auto mean = X.mean(1, /*keepdim=*/true);
-    X = X - mean;
+  // Center the data (subtract the mean for each feature channel)
+  auto mean = X.mean(1, /*keepdim=*/true);
+  X = X - mean;
 
-    // Compute covariance matrix of shape [F, F]
-    auto cov = torch::mm(X, X.t()) / static_cast<float>(H * W - 1);
+  // Compute covariance matrix of shape [F, F]
+  auto cov = torch::mm(X, X.t()) / static_cast<float>(H * W - 1);
 
-    // Compute eigenvalues and eigenvectors of the covariance matrix
-    // Note: torch::linalg_eigh returns eigenvalues in ascending order
-    auto eigen = torch::linalg_eigh(cov);
-    auto eigenvalues = std::get<0>(eigen);
-    auto eigenvectors = std::get<1>(eigen);
+  // Compute eigenvalues and eigenvectors of the covariance matrix
+  // Note: torch::linalg_eigh returns eigenvalues in ascending order
+  auto eigen = torch::linalg_eigh(cov);
+  auto eigenvalues = std::get<0>(eigen);
+  auto eigenvectors = std::get<1>(eigen);
 
-    // Select the top 3 eigenvectors corresponding to the largest eigenvalues
-    // Since eigenvalues are in ascending order, the top eigenvectors are at the end
-    auto top_eigenvectors = eigenvectors.index({Slice(), Slice(F - 3, F)}); // shape [F,3]
+  // Select the top 3 eigenvectors corresponding to the largest eigenvalues
+  // Since eigenvalues are in ascending order, the top eigenvectors are at the
+  // end
+  auto top_eigenvectors =
+      eigenvectors.index({Slice(), Slice(F - 3, F)});  // shape [F,3]
 
-    // Project the original centered data onto the top eigenvectors
-    auto projected = torch::mm(top_eigenvectors.t(), X); // shape [3, H*W]
+  // Project the original centered data onto the top eigenvectors
+  auto projected = torch::mm(top_eigenvectors.t(), X);  // shape [3, H*W]
 
-    // Reshape result back to [3, B, H, W] -> [B, 3, H, W]
-    auto reduced = projected.view({3, B, H, W}).permute({1, 0, 2, 3});
-    
-    return reduced;
+  // Reshape result back to [3, B, H, W] -> [B, 3, H, W]
+  auto reduced = projected.view({3, B, H, W}).permute({1, 0, 2, 3});
+
+  return reduced;
 }
 
 // void CresteNode::SaveDepthImage(const cv::Mat& depthMatrix,
@@ -264,8 +271,8 @@ void saveElevationImage(
 //   // pca_result: shape [N, 3], N = featH*featW if batch=1
 
 //   if (batch != 1) {
-//     ROS_WARN("Feature map has batch=%d, skipping PCA image generation", batch);
-//     return;
+//     ROS_WARN("Feature map has batch=%d, skipping PCA image generation",
+//     batch); return;
 //   }
 
 //   // reshape [N,3] -> [1, 3, H, W]
