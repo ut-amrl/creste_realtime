@@ -3,6 +3,7 @@
 **/data/**
 **/bin/**
 **/lib/**
+**/install/**
 *.pt
 *.png
 *.bkp

@@ -1,7 +1,7 @@
 <package>
   <description brief="creste_realtime">
 
-  Lift, Splat Mapping for Real-time Semantic/Elevation-aware Robot Navigation
+  CREStE for Real-time Semantic/Elevation-aware Robot Navigation
 
   </description>
   <author>Arthur K. Zhang</author>

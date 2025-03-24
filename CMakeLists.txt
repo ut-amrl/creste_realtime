@@ -1,77 +1,112 @@
-# Minimum version for older ROS distributions:
-# (rosbuild often used 2.6 as a baseline)
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project(creste_realtime)
+
+if(NOT DEFINED CMAKE_INSTALL_PREFIX)
+  set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/install" CACHE PATH "Installation Directory" FORCE)
+endif()
+
+# Enable the new IN_LIST operator usage for CMake
+if(POLICY CMP0057)
+  cmake_policy(SET CMP0057 NEW)
+endif()
 
 message(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Arch: ${CMAKE_SYSTEM_PROCESSOR}")
 
+# --------------------------------------------------------------------
+# Determine ROS version from environment variable
+# --------------------------------------------------------------------
+if(DEFINED ENV{ROS_VERSION})
+  if("$ENV{ROS_VERSION}" STREQUAL "1")
+    add_definitions(-DROS1)
+    set(USE_ROS1 TRUE)
+    message(STATUS "Detected ROS_VERSION=1 -> Using ROS1 (rosbuild)")
+  elseif("$ENV{ROS_VERSION}" STREQUAL "2")
+    add_definitions(-DROS2)
+    set(USE_ROS1 FALSE)
+    message(STATUS "Detected ROS_VERSION=2 -> Using ROS2 (ament_cmake)")
+  else()
+    message(FATAL_ERROR "Unknown ROS_VERSION: $ENV{ROS_VERSION}. Must be '1' or '2'.")
+  endif()
+else()
+  message(FATAL_ERROR "ROS_VERSION environment variable is not defined")
+endif()
+
+# --------------------------------------------------------------------
 # Compiler flags
+# --------------------------------------------------------------------
 set(CMAKE_CXX_FLAGS "-std=c++17 -Wall -Wno-unknown-pragmas -Werror")
 
-# Handle Debug/Release flags
-if(${CMAKE_BUILD_TYPE} MATCHES "Release")
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
   message(STATUS "Additional Flags for Release mode")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp -O2 -DNDEBUG")
-elseif(${CMAKE_BUILD_TYPE} MATCHES "Debug")
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   message(STATUS "Additional Flags for Debug mode")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 endif()
 
-#-----------------------------------------------------------------------------
-# rosbuild initialization
-#-----------------------------------------------------------------------------
-include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
-rosbuild_init()
+# --------------------------------------------------------------------
+# ROS1 vs. ROS2 Setup
+# --------------------------------------------------------------------
+if(USE_ROS1)
+  # ------------------------------------------
+  # ROS1 (rosbuild)
+  # ------------------------------------------
+  if(NOT DEFINED ENV{ROS_ROOT})
+    message(FATAL_ERROR "ROS_ROOT is not set; cannot build for ROS1.")
+  endif()
+  include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
+  rosbuild_init()
 
-# Optionally, control whether you build shared/static libs
-# set(ROS_BUILD_STATIC_LIBS true)
-# set(ROS_BUILD_SHARED_LIBS false)
+  # Optionally control static/shared libs with these lines:
+  # set(ROS_BUILD_STATIC_LIBS true)
+  # set(ROS_BUILD_SHARED_LIBS false)
 
-#-----------------------------------------------------------------------------
-# Find Libtorch, OpenCV, PCL, etc.
-# (Same as your original approach, but without ament)
-#-----------------------------------------------------------------------------
-# Adjust prefix path for Libtorch if needed
-list(APPEND CMAKE_PREFIX_PATH "/usr/local/libtorch")
+else()
+  # ------------------------------------------
+  # ROS2 (ament_cmake)
+  # ------------------------------------------
+  find_package(ament_cmake REQUIRED)
+  find_package(rclcpp REQUIRED)
+  find_package(std_msgs REQUIRED)
+  find_package(sensor_msgs REQUIRED)
+  find_package(geometry_msgs REQUIRED)
+  find_package(amrl_msgs REQUIRED)
+  find_package(cv_bridge REQUIRED)
+  find_package(tf2 REQUIRED)
+  find_package(tf2_ros REQUIRED)
+  find_package(pcl_conversions REQUIRED)
+  message(STATUS "Building for ROS2 using ament_cmake")
+endif()
+
+# --------------------------------------------------------------------
+# Common Third-Party Dependencies (Non-ROS)
+# --------------------------------------------------------------------
+# e.g., Torch, OpenCV, PCL, etc.
+list(APPEND CMAKE_PREFIX_PATH "/usr/local/libtorch")  # Adjust if needed
 find_package(Torch REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(VTK REQUIRED)
+# if you also need VTK or others, do so here:
+# find_package(VTK REQUIRED)
+# include(${VTK_USE_FILE})  # If needed
 
-# If you need GridMap libs (grid_map_core, grid_map_ros, etc.), 
-# you can locate them as normal ROS packages:
-# rosbuild_find_ros_package(grid_map_core)
-# rosbuild_find_ros_package(grid_map_ros)
-# rosbuild_find_ros_package(grid_map_cv)
-# rosbuild_find_ros_package(grid_map_msgs)
-
-# If your code uses sensor_msgs, std_msgs, pcl_conversions, etc.
-# you typically reference them as “rosbuild depends” in your manifest (.xml).
-# 
-# For linking, we’ll gather them into a variable.
-# You can also add roslib, roscpp, etc. as needed.
-set(libs
-  roslib
-  roscpp
-  glog 
+# We'll gather them in a variable
+set(non_ros_libs
+  glog
   gflags
-  amrl_shared_lib
-  cv_bridge
   yaml-cpp
+  ${OpenCV_LIBS}
+  ${PCL_LIBRARIES}
+  ${TORCH_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+  # ${VTK_LIBRARIES}  # if needed
 )
 
-# Include the VTK use file, which sets up many VTK-specific variables and macros.
-include(${VTK_USE_FILE})
-
-#-----------------------------------------------------------------------------
 # Include directories
-#-----------------------------------------------------------------------------
-# The rosbuild macros automatically include some ROS-related paths,
-# but we can add extra includes if needed:
 include_directories(
   include
   src/shared
@@ -79,95 +114,133 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
   ${TORCH_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
-  # ${grid_map_core_INCLUDE_DIRS}
-  ${YAML_CPP_INCLUDE_DIRS} 
+  ${YAML_CPP_INCLUDE_DIRS}
   ${VTK_INCLUDE_DIRS}
 )
 
 add_subdirectory(src/shared)
 
+# Link directories
 link_directories(${PCL_LIBRARY_DIRS})
 
-#-----------------------------------------------------------------------------
-# Generate messages/services if your package defines them
-#-----------------------------------------------------------------------------
-rosbuild_genmsg()
-rosbuild_gensrv()
+# --------------------------------------------------------------------
+# (Optional) If you have custom messages or services
+# --------------------------------------------------------------------
+if(USE_ROS1)
+  rosbuild_genmsg()
+  rosbuild_gensrv()
+else()
+  # For ROS2, you might do something like:
+  # rosidl_generate_interfaces(${PROJECT_NAME}
+  #   "msg/MyMsg.msg"
+  #   "srv/MySrv.srv"
+  #   DEPENDENCIES std_msgs
+  # )
+endif()
 
-#-----------------------------------------------------------------------------
-# Build executables
-# In rosbuild, we typically use the macro: rosbuild_add_executable
-#-----------------------------------------------------------------------------
-rosbuild_add_executable(creste_node
-  src/creste_node_main.cc
-  src/creste_node.cc
-  src/utils.cc
-  src/visualization.cc
-)
+# --------------------------------------------------------------------
+# Building
+# --------------------------------------------------------------------
+if(USE_ROS1)
+  # ------------------------------------------
+  # Build with rosbuild
+  # ------------------------------------------
+  # Example: add a shared library
+  # rosbuild_add_library(shared_lib src/shared/foo.cc)
+  # target_link_libraries(shared_lib ${non_ros_libs})
 
-# Link libraries for creste_node
-target_link_libraries(creste_node
-  ${libs}
-  ${OpenCV_LIBS}
-  ${PCL_LIBRARIES}
-  ${TORCH_LIBRARIES}
-  # Add Eigen or CUDA if you link them explicitly, e.g.
-  # ${EIGEN3_LIBRARIES}
-  # ${CUDA_LIBRARIES}
-)
+  # Executable #1: creste_node
+  rosbuild_add_executable(creste_node
+    src/creste_node_main.cc
+    src/creste_node.cc
+    src/utils.cc
+    src/visualization.cc
+  )
+  # Link with ros libs + third-party libs
+  target_link_libraries(creste_node
+    roslib roscpp  # typical ROS1 libs
+    ${non_ros_libs}
+    pcl_conversions
+  )
 
-#-----------------------------------------------------------------------------
-# Another executable (publisher_node), if you have it:
-#-----------------------------------------------------------------------------
-rosbuild_add_executable(publisher_node
-  src/publisher_node_main.cc
-)
+  # Example: second executable
+  # rosbuild_add_executable(publisher_node
+  #   src/publisher_node_main.cc
+  # )
+  # target_link_libraries(publisher_node
+  #   roslib roscpp
+  #   ${non_ros_libs}
+  #   pcl_conversions
+  # )
 
-rosbuild_add_executable(astar_test
-  src/astar.cc
-)
+else()
+  # ------------------------------------------
+  # Build with ament_cmake (ROS2)
+  # ------------------------------------------
+  add_executable(creste_node
+    src/creste_node_main.cc
+    src/creste_node.cc
+    src/utils.cc
+    src/visualization.cc
+  )
+  target_link_libraries(creste_node
+    # Link your non-ROS libs
+    ${non_ros_libs}
+    # Also link rclcpp
+    rclcpp::rclcpp
+  )
+  ament_target_dependencies(creste_node
+    rclcpp
+    sensor_msgs
+    geometry_msgs
+    amrl_msgs
+    cv_bridge
+    tf2
+    tf2_ros
+    pcl_conversions
+  )
 
-rosbuild_add_executable(elevation_test
-  src/elevation_test.cc
-  src/visualization.cc
-)
+  # Example: second executable
+  # add_executable(publisher_node
+  #   src/publisher_node_main.cc
+  # )
+  # target_link_libraries(publisher_node
+  #   ${non_ros_libs}
+  #   rclcpp::rclcpp
+  # )
+  # ament_target_dependencies(publisher_node
+  #   rclcpp
+  #   sensor_msgs
+  #   geometry_msgs
+  #   amrl_msgs
+  #   cv_bridge
+  #   tf2
+  #   tf2_ros
+  #   pcl_conversions
+  # )
+endif()
 
-target_link_libraries(publisher_node
-  ${libs}
-  ${OpenCV_LIBS}
-  ${PCL_LIBRARIES}
-  ${VTK_LIBRARIES}
-  # etc.
-)
-
-target_link_libraries(elevation_test
-  ${libs}
-  ${OpenCV_LIBS}
-  ${PCL_LIBRARIES}
-  ${VTK_LIBRARIES}
-  ${TORCH_LIBRARIES}
-  # etc.
-)
-
-#-----------------------------------------------------------------------------
-# If you produce shared libraries or run gtests, you’d do similarly:
-#-----------------------------------------------------------------------------
-# add_library(my_library src/my_library.cc)
-# target_link_libraries(my_library ${ros_libs} ${TORCH_LIBRARIES} ...)
-#
-# rosbuild_add_gtest(test_something tests/test_something.cpp)
-# target_link_libraries(test_something my_library)
-
-#-----------------------------------------------------------------------------
-# Output paths, if desired:
-#-----------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Output paths
+# --------------------------------------------------------------------
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
-set(LIBRARY_OUTPUT_PATH    ${PROJECT_SOURCE_DIR}/lib)
+set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 
-# If you want to confirm the final flags/paths:
+# Print some helpful info
 message(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
-message(STATUS "LibTorch includes: ${TORCH_INCLUDE_DIRS}")
-message(STATUS "LibTorch libraries: ${TORCH_LIBRARIES}")
-message(STATUS "OpenCV includes: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "Torch includes: ${TORCH_INCLUDE_DIRS}")
+message(STATUS "Torch libs: ${TORCH_LIBRARIES}")
 
-# Done!
+# --------------------------------------------------------------------
+# Installation / ament_package
+# --------------------------------------------------------------------
+if(USE_ROS1)
+  # For rosbuild, there's typically no 'install' or 'ament_package'.
+  message(STATUS "No ROS1 install step by default. Add custom logic if needed.")
+else()
+  # ROS2: ament
+  install(TARGETS creste_node # publisher_node
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
+  )
+  ament_package()
+endif()

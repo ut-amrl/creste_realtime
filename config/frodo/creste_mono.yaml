@@ -1,7 +1,7 @@
 model_params:
-  weights_path: "./traversability_model_trace_distill128_cfs_stereorgb.pt"
+  weights_path: "./traversability_model_trace_distill128_cfs_rgbonly.pt"
   static_output_dim: 32
-  modality: "stereo"
+  modality: "monocular"
 map_params:
   resolution: 0.1
   height: 25.6
@@ -26,13 +26,13 @@ planner_params:
   goal_tolerance: 0.5
   cost_weight: 1.5
 input_topics: # Uses these to determine
-  left_image: "/stereo/left/image_raw/compressed"
-  left_camera_info: "/stereo/left/camera_info"
-  right_image: "/stereo/right/image_raw/compressed"
-  right_camera_info: "/stereo/right/camera_info"
+  left_image: "/front_camera/compressed"
+  left_camera_info: "/front_camera/camera_infos"
+  right_image: ""
+  right_camera_info: ""
   pointcloud: ""
 output_topics:
-  depth: "/stereo/left/image_raw/depth"
+  depth: "/creste/front_camera/depth"
   traversability: "/creste/bev/traversability"
   semantic_elevation: "/creste/semantic_elevation"
 viz_params:
@@ -125,7 +125,7 @@ pix2pt: # Rectified Camera Pixels to LiDAR (Downsampled)
   #   -0.0106468,  0.00004,    0.8235223,  0.1243182,
   #   -0.0000536, -0.0106324,  0.6041906,  0.1325394,
   #   0.,         0.,         0.,         1. 
-  # ]
+  # # ]
   # data: [ # 2025-02-09 long horizon
   #   0.0002149, -0.0007617,  1.0278419, -0.0534973,
   #   -0.01057,    0.0001558,  0.8189456,  0.1157467,

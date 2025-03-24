@@ -1,8 +1,8 @@
 #ifndef PLANNER_H_
 #define PLANNER_H_
 
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
+// #include <ros/ros.h>
+// #include <sensor_msgs/Image.h>
 
 #include <cmath>
 #include <iostream>

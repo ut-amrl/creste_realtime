@@ -34,7 +34,7 @@ input_topics: # Uses these to determine
 output_topics:
   depth: "/stereo/left/image_raw/depth"
   traversability: "/creste/bev/traversability"
-  semantic_elevation: "/creste/3d/semantic_elevation"
+  semantic_elevation: "/creste/semantic_elevation"
 viz_params:
   history_window: 3
   viz_3d: False

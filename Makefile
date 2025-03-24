@@ -32,5 +32,9 @@ build/CMakeLists.txt.copy: CMakeLists.txt Makefile
 	mkdir -p build
 	cd build && cmake -DCMAKE_BUILD_TYPE=$(build_type) \
 		-DCMAKE_CXX_COMPILER=$(CXX_compiler) \
-		-DCMAKE_C_COMPILER=$(C_compiler) ..
+		-DCMAKE_C_COMPILER=$(C_compiler) \
+		-DCMAKE_INSTALL_PREFIX=$(PWD)/install ..
 	cp CMakeLists.txt build/CMakeLists.txt.copy
+
+# install: build/CMakeLists.txt.copy
+# 	$(MAKE) --no-print-directory -C build install

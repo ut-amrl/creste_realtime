@@ -17,19 +17,18 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      # Error on unknown arguments (or skip them, depending on your preference)
       echo "Unknown option: $1"
       shift
       ;;
   esac
 done
 
-if [[ -n "$WEIGHTS_PATH" ]]; then
-  # If a weights_path was specified
-  echo "Running inference with weights path: $WEIGHTS_PATH"
-  rosrun creste_realtime creste_node --config_path="$CONFIG_PATH" --weights_path="$WEIGHTS_PATH"
+# Check if ros2 is installed (i.e. if the "ros2" command is available)
+if command -v ros2 > /dev/null 2>&1; then
+  ROS_VERSION=2
 else
-  # If no weights_path is given, omit it entirely
-  echo "Running inference with default config only (no weights path)."
-  rosrun creste_realtime creste_node --config_path="$CONFIG_PATH"
+  ROS_VERSION=1
 fi
+
+./bin/creste_node --config_path "$CONFIG_PATH" --weights_path "$WEIGHTS_PATH"
+

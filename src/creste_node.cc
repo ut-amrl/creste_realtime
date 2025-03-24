@@ -1,29 +1,50 @@
 #include "creste_node.h"
 
+#include "utils.h"
+
+#ifdef ROS1
+// For time difference in seconds
+#define TIME_DIFF(start, end) ((end - start).toSec())
+#else
+// For time difference in seconds
+#define TIME_DIFF(start, end) ((end - start).seconds())
+#endif
+
 using std::vector;
 
 namespace creste {
 
+// #ifdef ROS1
+// CresteNode::CresteNode(const std::string& config_path,
+//                        const std::string& weights_path,
+//                        const ros::NodeHandle& nh)
+//     : nh_(nh),
+//       model_(nullptr),
+//       model_outputs_(nullptr),
+//       semantic_history_idx_(0),
+//       viz_3d_(false) {
+// #else
 CresteNode::CresteNode(const std::string& config_path,
-                       const std::string& weights_path)
-    : nh_("~"),
+                       const std::string& weights_path, NodeHandleType node)
+    : node_(node),
       model_(nullptr),
       model_outputs_(nullptr),
       semantic_history_idx_(0),
       viz_3d_(false) {
-  ROS_INFO("CresteNode initialized.");
+  // #endif
+  LOG_INFO("CresteNode constructor starting.");
 
   YAML::Node config;
   try {
     config = YAML::LoadFile(config_path);
-    ROS_INFO("Loaded config file: %s", config_path.c_str());
+    LOG_INFO("Loaded config file: %s", config_path.c_str());
   } catch (const std::exception& e) {
-    ROS_ERROR("Failed to load config file %s: %s", config_path.c_str(),
+    LOG_ERROR("Failed to load config file %s: %s", config_path.c_str(),
               e.what());
     return;
   }
 
-  // Read parameters from config
+  // Read parameters
   std::string left_image_topic =
       config["input_topics"]["left_image"].as<std::string>("");
   std::string right_image_topic =
@@ -37,20 +58,20 @@ CresteNode::CresteNode(const std::string& config_path,
   modality_ = config["model_params"]["modality"].as<std::string>("rgbd");
 
   std::string output_depth_topic =
-      config["output_topics"]["depth"].as<std::string>();
+      config["output_topics"]["depth"].as<std::string>("");
   std::string output_traversability_topic =
-      config["output_topics"]["traversability"].as<std::string>();
+      config["output_topics"]["traversability"].as<std::string>("");
   std::string output_semantic_elevation_topic =
-      config["output_topics"]["semantic_elevation"].as<std::string>();
+      config["output_topics"]["semantic_elevation"].as<std::string>("");
 
-  // Load map to world extrinsics
+  // Load map -> base_link extrinsics
   map_to_base_link_ =
       config["map_params"]["map_to_base_link"].as<std::vector<float>>();
 
   // Decide which sensors to enable
   enable_cloud_ = !pointcloud_topic.empty();
 
-  // Build up a vector of cameras we want to handle
+  // Build cameras list
   if (!left_image_topic.empty()) {
     auto cam = std::make_unique<CameraHandler>();
     cam->enabled = true;
@@ -58,8 +79,8 @@ CresteNode::CresteNode(const std::string& config_path,
     cam->image_topic = left_image_topic;
     cam->info_topic = left_info_topic;
     cameras_.push_back(std::move(cam));
+    LOG_INFO("Added left camera");
   }
-
   if (!right_image_topic.empty()) {
     auto cam = std::make_unique<CameraHandler>();
     cam->enabled = true;
@@ -67,129 +88,165 @@ CresteNode::CresteNode(const std::string& config_path,
     cam->image_topic = right_image_topic;
     cam->info_topic = right_info_topic;
     cameras_.push_back(std::move(cam));
+    LOG_INFO("Added right camera");
   }
-  // If only 1 camera is desired, you'll have just one in cameras_.
-  // If you want stereo, you have 2, etc.
 
+#ifdef ROS1
   // Subscribe to pointcloud if needed
   if (enable_cloud_) {
-    pointcloud_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>(
+    pointcloud_subscriber_ = nh_.subscribe<PointCloud2>(
         pointcloud_topic, 10, &CresteNode::PointCloudCallback, this);
   }
-
-  // For each camera in cameras_, subscribe to both image & camera_info
+  // For each camera, subscribe to image + info
   for (size_t i = 0; i < cameras_.size(); i++) {
-    auto& cam =
-        *(cameras_[i]);  // dereference the unique_ptr to get a reference
+    auto& cam = *(cameras_[i]);
     if (!cam.enabled) continue;
-
     if (!cam.image_topic.empty()) {
-      cam.image_sub = nh_.subscribe<sensor_msgs::CompressedImage>(
+      cam.image_sub = nh_.subscribe<CompressedImage>(
           cam.image_topic, 10,
           boost::bind(&CresteNode::CameraImageCallback, this, _1, i));
-      ROS_INFO("Subscribed to image topic: %s", cam.image_topic.c_str());
+      LOG_INFO("Subscribed to image topic: %s", cam.image_topic.c_str());
     }
     if (!cam.info_topic.empty()) {
-      cam.info_sub = nh_.subscribe<sensor_msgs::CameraInfo>(
+      cam.info_sub = nh_.subscribe<CameraInfo>(
           cam.info_topic, 10,
           boost::bind(&CresteNode::CameraInfoCallback, this, _1, i));
-      ROS_INFO("Subscribed to info topic: %s", cam.info_topic.c_str());
+      LOG_INFO("Subscribed to info topic: %s", cam.info_topic.c_str());
     }
   }
+#else
+  // ROS2 style subscription creation:
+  if (enable_cloud_) {
+    pointcloud_subscriber_ = node_->create_subscription<PointCloud2>(
+        pointcloud_topic, 10,
+        std::bind(&CresteNode::PointCloudCallback, this,
+                  std::placeholders::_1));
+  }
+  for (size_t i = 0; i < cameras_.size(); i++) {
+    auto& cam = *(cameras_[i]);
+    if (!cam.enabled) continue;
+    if (!cam.image_topic.empty()) {
+      cam.image_sub = node_->create_subscription<CompressedImage>(
+          cam.image_topic, 10, [this, i](const CompressedImageConstPtr msg) {
+            CameraImageCallback(msg, i);
+          });
+      LOG_INFO("Subscribed to image topic: %s", cam.image_topic.c_str());
+    }
+    if (!cam.info_topic.empty()) {
+      cam.info_sub = node_->create_subscription<CameraInfo>(
+          cam.info_topic, 10, [this, i](const CameraInfoConstPtr msg) {
+            CameraInfoCallback(msg, i);
+          });
+      LOG_INFO("Subscribed to info topic: %s", cam.info_topic.c_str());
+    }
+  }
+#endif
 
   // Load model
   std::string model_path =
       config["model_params"]["weights_path"].as<std::string>("");
   if (!weights_path.empty()) {
-    model_path = weights_path;  // override if needed
+    model_path = weights_path;  // override
   }
   model_ = std::make_shared<CresteModel>(model_path);
 
   // Advertise a service
-  carrot_planner_service = nh_.advertiseService(
-      "/navigation/deep_cost_map_service", &CresteNode::CostmapCallback, this);
+#ifdef ROS1
+  costmap_service_ = nh_.advertiseService("/navigation/deep_cost_map_service",
+                                          &CresteNode::CostmapCallback, this);
+#else
+  costmap_service_ = node_->create_service<CostmapSrv>(
+      "/navigation/deep_cost_map_service",
+      [this](const std::shared_ptr<CostmapSrv::Request> req,
+             std::shared_ptr<CostmapSrv::Response> res) {
+        return CostmapCallback(req, res);
+      });
+#endif
 
   // Load extrinsics, calibrations, FOV mask, etc.
   LoadCalibParams(config);
   fov_mask_ = createTrapezoidalFovMask(256, 256);
   if (torch::cuda::is_available()) {
-    fov_mask_ = fov_mask_.to(torch::kCUDA);
+    fov_mask_ = fov_mask_.cuda();
   }
 
   // Publishers
+#ifdef ROS1
   depth_publisher_ = nh_.advertise<sensor_msgs::Image>(output_depth_topic, 10);
   traversability_publisher_ =
       nh_.advertise<sensor_msgs::Image>(output_traversability_topic, 10);
   semantic_elevation_publisher_ =
       nh_.advertise<sensor_msgs::Image>(output_semantic_elevation_topic, 10);
+#else
+  depth_publisher_ = node_->create_publisher<Image>(output_depth_topic, 10);
+  traversability_publisher_ =
+      node_->create_publisher<Image>(output_traversability_topic, 10);
+  semantic_elevation_publisher_ =
+      node_->create_publisher<Image>(output_semantic_elevation_topic, 10);
+#endif
 
   // Initialize semantic map queue
-  int history_window = config["viz_params"]["history_window"].as<int>();
-  int static_output_dim = config["model_params"]["static_output_dim"].as<int>();
+  int history_window = config["viz_params"]["history_window"].as<int>(5);
+  int static_output_dim =
+      config["model_params"]["static_output_dim"].as<int>(3);
   semantic_history_ =
-      torch::zeros({history_window, static_output_dim, 256, 256})
-          .to(torch::kCUDA);
-  viz_3d_ = config["viz_params"]["viz_3d"].as<bool>();
+      torch::zeros({history_window, static_output_dim, 256, 256}).cuda();
+  viz_3d_ = config["viz_params"]["viz_3d"].as<bool>(false);
 
-  has_rectification_ = false;
+  LOG_INFO("CresteNode constructor finished.");
 }
 
-// Example helper to load calibration
 void CresteNode::LoadCalibParams(const YAML::Node& config) {
-  {
-    const auto& node = config["pt2pix"];
-    if (!node) {
-      std::cerr << "ERROR: No 'pt2pix' entry in YAML!\n";
-      return;
-    }
-    pt2pix_.rows = node["rows"].as<int>();
-    pt2pix_.cols = node["cols"].as<int>();
-    pt2pix_.data = node["data"].as<std::vector<float>>();
+  const auto& node_pt2pix = config["pt2pix"];
+  if (!node_pt2pix) {
+    LOG_ERROR("No 'pt2pix' entry in YAML config!");
+    return;
   }
+  pt2pix_.rows = node_pt2pix["rows"].as<int>();
+  pt2pix_.cols = node_pt2pix["cols"].as<int>();
+  pt2pix_.data = node_pt2pix["data"].as<std::vector<float>>();
 
-  {
-    const auto& node = config["pix2pt"];
-    if (!node) {
-      std::cerr << "ERROR: No 'pix2pt' entry in YAML!\n";
-      return;
-    }
-    pix2pt_.rows = node["rows"].as<int>();
-    pix2pt_.cols = node["cols"].as<int>();
-    pix2pt_.data = node["data"].as<std::vector<float>>();
+  const auto& node_pix2pt = config["pix2pt"];
+  if (!node_pix2pt) {
+    LOG_ERROR("No 'pix2pt' entry in YAML config!");
+    return;
   }
+  pix2pt_.rows = node_pix2pt["rows"].as<int>();
+  pix2pt_.cols = node_pix2pt["cols"].as<int>();
+  pix2pt_.data = node_pix2pt["data"].as<std::vector<float>>();
 }
 
-// --------------------------------------------------------------------------
-//                               Callbacks
-// --------------------------------------------------------------------------
-void CresteNode::PointCloudCallback(
-    const sensor_msgs::PointCloud2ConstPtr& msg) {
+void CresteNode::PointCloudCallback(const PointCloud2ConstPtr msg) {
   std::lock_guard<std::mutex> lk(cloud_queue_mutex_);
   cloud_queue_.push(msg);
 }
 
-void CresteNode::CameraImageCallback(
-    const sensor_msgs::CompressedImageConstPtr& msg, size_t cam_idx) {
-  // Lock this camera's queue
+void CresteNode::CameraImageCallback(const CompressedImageConstPtr msg,
+                                     size_t cam_idx) {
   auto& cam = *(cameras_[cam_idx]);
   std::lock_guard<std::mutex> lk(cam.queue_mutex);
+  LOG_INFO("Camera [%s] image callback", cam.camera_name.c_str());
   cam.image_queue.push(msg);
 }
 
-void CresteNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg,
+void CresteNode::CameraInfoCallback(const CameraInfoConstPtr msg,
                                     size_t cam_idx) {
   auto& cam = *(cameras_[cam_idx]);
   cam.camera_info = *msg;
-
   if (!cam.has_rectification) {
-    // Initialize rectification maps for this camera
     cv::Size size(msg->width, msg->height);
 
+#ifdef ROS1
     cv::Mat Kd(3, 3, CV_64F, (void*)msg->K.data());
     cv::Mat Dd(1, msg->D.size(), CV_64F, (void*)msg->D.data());
     cv::Mat Rd(3, 3, CV_64F, (void*)msg->R.data());
     cv::Mat Pd(3, 4, CV_64F, (void*)msg->P.data());
-
+#else
+    cv::Mat Kd(3, 3, CV_64F, (void*)msg->k.data());
+    cv::Mat Dd(1, msg->d.size(), CV_64F, (void*)msg->d.data());
+    cv::Mat Rd(3, 3, CV_64F, (void*)msg->r.data());
+    cv::Mat Pd(3, 4, CV_64F, (void*)msg->p.data());
+#endif
     cv::Mat Kf, Df, Rf, Pf;
     Kd.convertTo(Kf, CV_32F);
     Dd.convertTo(Df, CV_32F);
@@ -199,52 +256,42 @@ void CresteNode::CameraInfoCallback(const sensor_msgs::CameraInfoConstPtr& msg,
     cv::initUndistortRectifyMap(Kf, Df, Rf, Pf, size, CV_32FC1, cam.map1,
                                 cam.map2);
     cam.has_rectification = true;
-    ROS_INFO("Initialized rectification for camera [%s]",
+    LOG_INFO("Initialized rectification for camera [%s]",
              cam.camera_name.c_str());
   }
 }
 
-// --------------------------------------------------------------------------
-//                                run()
-// --------------------------------------------------------------------------
 void CresteNode::run() {
-  // -------------------------------------------------------------------------
-  // 0) Immediately drop any messages older than 300ms in all queues
-  // -------------------------------------------------------------------------
-  const ros::Time now = ros::Time::now();
-  // We'll compare in nanoseconds: (sec * 1e9 + nsec) - 300 ms
-  int64_t cutoff_ns = static_cast<int64_t>(now.sec) * 1000000000LL + now.nsec -
-                      250LL * 1000000LL;  // 250ms = 250 * 1e6 ns
+  // 0) Drop old data
+  auto now = GET_TIME;
+  int64_t now_ns = to_nanoseconds(now);
+  int64_t cutoff_ns = now_ns - (1000LL * 1000000LL);  // 1000 ms
 
-  // For each camera, prune old messages
+  // For each camera
   for (auto& cam_ptr : cameras_) {
     if (!cam_ptr->enabled) continue;
     std::lock_guard<std::mutex> lk(cam_ptr->queue_mutex);
-
     while (!cam_ptr->image_queue.empty()) {
-      const auto& front_msg = cam_ptr->image_queue.front();
-      // Convert timestamp to nanoseconds
-      int64_t front_ts_ns =
-          static_cast<int64_t>(front_msg->header.stamp.sec) * 1000000000LL +
-          front_msg->header.stamp.nsec;
-
-      // If older than cutoff, pop it
+      auto front_msg = cam_ptr->image_queue.front();
+      int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
+      LOG_INFO("Camera [%s] front_ts_ns: %ld", cam_ptr->camera_name.c_str(),
+               front_ts_ns);
+      LOG_INFO("Now_ns: %ld", now_ns);
       if (front_ts_ns < cutoff_ns) {
         cam_ptr->image_queue.pop();
       } else {
-        break;  // front of queue is now fresh enough
+        break;
       }
     }
   }
 
-  // If you're using the cloud queue, prune old clouds too
+  // Cloud queue
   if (enable_cloud_) {
     std::lock_guard<std::mutex> lk(cloud_queue_mutex_);
     while (!cloud_queue_.empty()) {
-      const auto& front_msg = cloud_queue_.front();
-      int64_t front_ts_ns =
-          static_cast<int64_t>(front_msg->header.stamp.sec) * 1000000000LL +
-          front_msg->header.stamp.nsec;
+      auto front_msg = cloud_queue_.front();
+
+      int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
 
       if (front_ts_ns < cutoff_ns) {
         cloud_queue_.pop();
@@ -254,120 +301,103 @@ void CresteNode::run() {
     }
   }
 
-  // 1) Gather front messages from each camera's queue (if enabled).
-  std::vector<sensor_msgs::CompressedImageConstPtr> front_images(
-      cameras_.size(), nullptr);
-  bool all_cameras_have_data = true;
-
-  // Store timestamps in a vector to see if they match
-  std::vector<int64_t> camera_timestamps_ns(cameras_.size(), 0);
+  // 1) Gather front images
+  std::vector<CompressedImageConstPtr> front_images(cameras_.size(), nullptr);
+  bool all_cameras_ok = true;
+  std::vector<int64_t> camera_ts_ns(cameras_.size(), 0);
 
   for (size_t i = 0; i < cameras_.size(); i++) {
     auto& cam = *(cameras_[i]);
     if (!cam.enabled) continue;
-
-    {
-      std::lock_guard<std::mutex> lk(cam.queue_mutex);
-      if (cam.image_queue.empty() || !cam.has_rectification) {
-        all_cameras_have_data = false;
-        break;
-      }
-      front_images[i] = cam.image_queue.front();
+    std::lock_guard<std::mutex> lk(cam.queue_mutex);
+    if (cam.image_queue.empty() || !cam.has_rectification) {
+      all_cameras_ok = false;
+      LOG_INFO("Camera [%s] not ready", cam.camera_name.c_str());
+      LOG_INFO("Queue size: %ld", cam.image_queue.size());
+      LOG_INFO("Rectification: %d", cam.has_rectification);
+      break;
     }
-    // Get its timestamp
-    ros::Time t = front_images[i]->header.stamp;
-    camera_timestamps_ns[i] =
-        static_cast<int64_t>(t.sec) * 1000000000LL + t.nsec;
+    front_images[i] = cam.image_queue.front();
+    camera_ts_ns[i] = to_nanoseconds(front_images[i]->header.stamp);
   }
 
-  if (!all_cameras_have_data) return;  // can't sync yet
-
-  // 2) Check pointcloud queue if enabled
-  sensor_msgs::PointCloud2ConstPtr front_cloud = nullptr;
+  if (!all_cameras_ok) return;
+  printf("All cameras ready\n");
+  // 2) Check cloud if needed
+  PointCloud2ConstPtr front_cloud = nullptr;
+  int64_t cloud_ts = 0;
   if (enable_cloud_) {
     std::lock_guard<std::mutex> lk(cloud_queue_mutex_);
     if (cloud_queue_.empty()) {
-      return;  // no cloud => can't sync
+      return;
     }
     front_cloud = cloud_queue_.front();
+    cloud_ts = to_nanoseconds(front_cloud->header.stamp);
   }
 
   // 3) Compare timestamps
-  int64_t min_ts = INT64_MAX;
-  int64_t max_ts = INT64_MIN;
-  for (auto ns_val : camera_timestamps_ns) {
+  int64_t min_ts = INT64_MAX, max_ts = INT64_MIN;
+  for (auto ns_val : camera_ts_ns) {
     if (ns_val == 0) continue;
     min_ts = std::min(min_ts, ns_val);
     max_ts = std::max(max_ts, ns_val);
   }
-
-  int64_t cloud_ts = 0;
   if (enable_cloud_ && front_cloud) {
-    ros::Time t = front_cloud->header.stamp;
-    cloud_ts = static_cast<int64_t>(t.sec) * 1000000000LL + t.nsec;
     min_ts = std::min(min_ts, cloud_ts);
     max_ts = std::max(max_ts, cloud_ts);
   }
 
   static constexpr int64_t kSyncThresholdNs = 100LL * 1000000LL;  // 100 ms
   if ((max_ts - min_ts) > kSyncThresholdNs) {
-    // Timestamps not matched => drop the oldest
+    // Drop oldest
     for (size_t i = 0; i < cameras_.size(); i++) {
-      auto& cam = *(cameras_[i]);
-      if (!cam.enabled) continue;
-      if (camera_timestamps_ns[i] == min_ts) {
-        std::lock_guard<std::mutex> lk(cam.queue_mutex);
-        cam.image_queue.pop();
-        ROS_WARN("Dropping old camera [%s] frame", cam.camera_name.c_str());
+      if (!cameras_[i]->enabled) continue;
+      if (camera_ts_ns[i] == min_ts) {
+        std::lock_guard<std::mutex> lk(cameras_[i]->queue_mutex);
+        cameras_[i]->image_queue.pop();
+        LOG_WARN("Dropping old camera [%s] frame",
+                 cameras_[i]->camera_name.c_str());
       }
     }
     if (enable_cloud_ && cloud_ts == min_ts) {
       std::lock_guard<std::mutex> lk(cloud_queue_mutex_);
       cloud_queue_.pop();
-      ROS_WARN("Dropping old LiDAR msg");
+      LOG_WARN("Dropping old LiDAR msg");
     }
-    return;  // try again next run()
+    return;
   }
 
-  // We have matched frames => pop from queues
+  // We have matched data => pop them
   for (size_t i = 0; i < cameras_.size(); i++) {
-    auto& cam = *(cameras_[i]);
-    if (!cam.enabled) continue;
-    {
-      std::lock_guard<std::mutex> lk(cam.queue_mutex);
-      cam.image_queue.pop();
-    }
+    if (!cameras_[i]->enabled) continue;
+    std::lock_guard<std::mutex> lk(cameras_[i]->queue_mutex);
+    cameras_[i]->image_queue.pop();
   }
   if (enable_cloud_) {
     std::lock_guard<std::mutex> lk(cloud_queue_mutex_);
     cloud_queue_.pop();
   }
-
-  // Store in latest_*_msg_
+  printf("Data synced\n");
+  // Store in latest
   {
     std::lock_guard<std::mutex> lk(latest_msg_mutex_);
     latest_camera_msgs_ = front_images;
     latest_cloud_msg_ = front_cloud;
   }
-
+  printf("Running inference\n");
   // Launch inference
-  this->inference();
+  inference();
 }
 
-// --------------------------------------------------------------------------
-//                            inference()
-// --------------------------------------------------------------------------
 void CresteNode::inference() {
-  std::vector<sensor_msgs::CompressedImageConstPtr> camera_imgs;
-  sensor_msgs::PointCloud2ConstPtr cloud_msg;
+  // Acquire snapshots
+  std::vector<CompressedImageConstPtr> camera_imgs;
+  PointCloud2ConstPtr cloud_msg;
   {
     std::lock_guard<std::mutex> lk(latest_msg_mutex_);
-    if (enable_cloud_ && !latest_cloud_msg_) {
-      return;
-    }
+    if (enable_cloud_ && !latest_cloud_msg_) return;
     for (size_t i = 0; i < cameras_.size(); i++) {
-      auto& cam = *(cameras_[i]);
-      if (cam.enabled && !latest_camera_msgs_[i]) {
+      if (cameras_[i]->enabled && !latest_camera_msgs_[i]) {
         return;  // not ready
       }
     }
@@ -377,26 +407,24 @@ void CresteNode::inference() {
 
   if (!model_) return;
 
-  // 1) Projection
-  ros::Time start = ros::Time::now();
+  auto start = GET_TIME;
   auto inputs = ProcessInputs(cloud_msg, camera_imgs);
-  ros::Time end = ros::Time::now();
-  ROS_INFO("Projection time: %f seconds", (end - start).toSec());
+  auto end = GET_TIME;
+  LOG_INFO("Projection time: %f seconds", TIME_DIFF(start, end));
 
-  // 1.5) Early return if inputs are empty
   if (std::get<0>(inputs).sizes().empty()) {
-    ROS_ERROR("Empty inputs after projection!");
+    LOG_ERROR("Empty inputs after projection!");
     return;
   }
 
-  // 2) Inference
-  start = ros::Time::now();
+  // Inference
+  start = GET_TIME;
   auto output = model_->forward(inputs);
-  end = ros::Time::now();
-  ROS_INFO("Model Inference time: %f seconds", (end - start).toSec());
+  end = GET_TIME;
+  LOG_INFO("Model Inference time: %f seconds", TIME_DIFF(start, end));
 
   // 3) Post-processing (construct cost map, etc.)
-  start = ros::Time::now();
+  start = GET_TIME;
   std::unordered_map<std::string, torch::Tensor> tensor_map;
   if (viz_3d_) {
     tensor_map["elevation"] = output.at("elevation_preds");
@@ -413,7 +441,7 @@ void CresteNode::inference() {
   if (max_cost > min_cost) {
     cost_map = (cost_map - min_cost) / (max_cost - min_cost);
   } else {
-    ROS_WARN("Cost map uniform. Setting to 1.0");
+    LOG_WARN("Cost map uniform. Setting to 1.0");
     cost_map.fill_(1.0f);
   }
   cost_map.clamp_(0.0f, 244.0f / 255.0f);
@@ -455,14 +483,14 @@ void CresteNode::inference() {
     cv::Mat rotated_8u;
     cv::warpAffine(cost_map_mat, rotated_8u, rot, cost_map_mat.size(),
                    cv::INTER_LINEAR, cv::BORDER_CONSTANT, /*borderValue*/ 255);
-    ROS_INFO("Rotated cost map.");
+    LOG_INFO("Rotated cost map.");
     // 5) Convert rotated CV_8UC1 back to float [0,1] in a torch::Tensor
     torch::Tensor rotated_tensor = torch::from_blob(
         rotated_8u.data, {rotated_8u.rows, rotated_8u.cols}, torch::kUInt8);
     // clone() so we own the memory (from_blob() just references existing data)
     rotated_tensor = rotated_tensor.clone().to(torch::kFloat32).div_(255.0f);
     rotated_tensor = rotated_tensor.unsqueeze(0).unsqueeze(0);  // [1,1,H,W]
-    ROS_INFO("Converted rotated cost map to tensor.");
+    LOG_INFO("Converted rotated cost map to tensor.");
     // 6) Overwrite the costmap in the tensor_map
     tensor_map["traversability_cost"] = rotated_tensor;
   }
@@ -474,13 +502,13 @@ void CresteNode::inference() {
         std::make_shared<std::unordered_map<std::string, torch::Tensor>>(
             tensor_map);
   }
-  ROS_INFO("Stored model outputs.");
+  LOG_INFO("Stored model outputs.");
 
   // Publish model predictions
   PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
   PublishTraversability(tensor_map, "traversability_cost",
                         traversability_publisher_);
-  ROS_INFO("Published model predictions.");
+  LOG_INFO("Published model predictions.");
   if (viz_3d_) {
     // Prepare 3D visualization
     printf("Computing PCA for semantic elevation map...");
@@ -521,13 +549,13 @@ void CresteNode::inference() {
   // target_width, tensor_map["depth_preds"]); PublishCompletedDepth(tensor_map,
   // "depth_full_preds", depth_publisher_);
 
-  end = ros::Time::now();
-  ROS_INFO("Map Processing time: %f seconds", (end - start).toSec());
+  end = GET_TIME;
+  LOG_INFO("Map Processing time: %f seconds", TIME_DIFF(start, end));
 }
 
 std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
-    const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
-    const std::vector<sensor_msgs::CompressedImageConstPtr>& camera_imgs) {
+    const PointCloud2ConstPtr& cloud_msg,
+    const std::vector<CompressedImageConstPtr>& camera_imgs) {
   // Final outputs
   torch::Tensor final_image_tensor;
   torch::Tensor final_p2p_tensor;
@@ -541,11 +569,11 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
   if (modality_ == "rgbd") {
     // Expect exactly 1 camera + LiDAR
     if (camera_imgs.empty()) {
-      ROS_ERROR("rgbd mode but no camera image found!");
+      LOG_ERROR("rgbd mode but no camera image found!");
       return {torch::Tensor(), torch::Tensor()};
     }
     if (!cloud_msg) {
-      ROS_ERROR("rgbd mode but no LiDAR data found!");
+      LOG_ERROR("rgbd mode but no LiDAR data found!");
       return {torch::Tensor(), torch::Tensor()};
     }
 
@@ -558,7 +586,7 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
     cv::Mat bgr_image =
         cv::imdecode(cv::Mat(camera_imgs[0]->data), cv::IMREAD_COLOR);
     if (bgr_image.empty()) {
-      ROS_ERROR("Empty camera image in rgbd mode!");
+      LOG_ERROR("Empty camera image in rgbd mode!");
       return {torch::Tensor(), torch::Tensor()};
     }
 
@@ -665,7 +693,7 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
   //===========================================================
   else {
     if (camera_imgs.empty()) {
-      ROS_ERROR("monocular/stereo mode but no camera images!");
+      LOG_ERROR("monocular/stereo mode but no camera images!");
       return {torch::Tensor(), torch::Tensor()};
     }
 
@@ -678,7 +706,7 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
       cv::Mat bgr =
           cv::imdecode(cv::Mat(camera_imgs[i]->data), cv::IMREAD_COLOR);
       if (bgr.empty()) {
-        ROS_WARN("Empty camera image at index %lu! Skipping...", i);
+        LOG_WARN("Empty camera image at index %lu! Skipping...", i);
         continue;
       }
 
@@ -703,7 +731,7 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
     }
 
     if (cam_tensors.empty()) {
-      ROS_ERROR("No valid images after decoding for monocular/stereo!");
+      LOG_ERROR("No valid images after decoding for monocular/stereo!");
       return {torch::Tensor(), torch::Tensor()};
     }
 
@@ -735,36 +763,35 @@ std::tuple<torch::Tensor, torch::Tensor> CresteNode::ProcessInputs(
   return std::make_tuple(final_image_tensor, final_p2p_tensor);
 }
 
-bool CresteNode::CostmapCallback(CostmapSrv::Request& req,
-                                 CostmapSrv::Response& res) {
-  // 1 Perform model inference (Cached)
+// #ifdef ROS1
+// bool CresteNode::CostmapCallback(amrl_msgs::CostmapSrv::Request& req,
+//                                  amrl_msgs::CostmapSrv::Response& res) {
+// #else
+bool CresteNode::CostmapCallback(const std::shared_ptr<CostmapSrv::Request> req,
+                                 std::shared_ptr<CostmapSrv::Response> res) {
+  // #endif
+  // Example: store model outputs in response
   std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs;
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
     model_outputs = model_outputs_;
   }
-
-  if (model_outputs == nullptr) {
-    ROS_ERROR("Model outputs not available.");
+  if (!model_outputs) {
+    LOG_ERROR("Model outputs not available for costmap service.");
+#ifdef ROS1
     res.success.data = false;
+#else
+    res->success.data = false;
+#endif
     return true;
   }
 
-  const auto& traversability_map = model_outputs->at("traversability_cost");
-
-  // 2 Create image costmap
-  cv_bridge::CvImage cv_img;
-  cv_img.header.stamp = ros::Time::now();  // Timestamp
-  cv_img.header.frame_id = "base_link";    // Set frame_id (can be customized)
-  cv_img.encoding = sensor_msgs::image_encodings::TYPE_8UC1;  // 8-bit grayscale
-  cv_img.image = TensorToMat(traversability_map);
-
-  // Convert CvImage to Image message
-  sensor_msgs::Image img_msg;
-  cv_img.toImageMsg(img_msg);
-  res.costmap = img_msg;
+  // Possibly fill in res->costmap or res.costmap
+#ifdef ROS1
   res.success.data = true;
-
+#else
+  res->success.data = true;
+#endif
   return true;
 }
 

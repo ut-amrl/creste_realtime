@@ -14,8 +14,8 @@ DEFAULT_IMAGE_NAME="amrl-infra-ros1"
 # Default directory mounts
 default_mounts=(
     "./:/home/creste_realtime"
-    "/robodata/arthurz/Research/amrl_infrastructure/amrl_msgs:/home/amrl_msgs"
-    "/robodata/jackal_logs/arthurz/lsmap_bags:/home/lsmap_bags"
+    "~/amrl_infrastructure/amrl_msgs:/home/amrl_infrastructure/amrl_msgs"
+    "~/frodo_baseline_ws/dryrunbags:/home/dryrunbags"
 )
 
 # Parse command-line arguments
@@ -41,7 +41,7 @@ if [ -z "$CONTAINER_NAME" ]; then
 fi
 
 # Construct the Docker run command
-DOCKER_CMD="docker run --rm --gpus=all --net=host -it --name $CONTAINER_NAME"
+DOCKER_CMD="docker run --rm --gpus=all --net=host --ipc=host --pid=host -e ROS_DOMAIN_ID=42 -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp -it --name $CONTAINER_NAME"
 
 # Add default mounts
 for DEFAULT_MOUNT in "${default_mounts[@]}"; do

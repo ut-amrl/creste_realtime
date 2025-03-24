@@ -1,11 +1,19 @@
-#pragma once
+#ifndef CRESTE_H_
+#define CRESTE_H_
 
-#include <ros/ros.h>       // For ROS_XXX logging macros
 #include <torch/script.h>  // One-stop header for TorchScript
+
+#ifdef ROS1
+#include <ros/ros.h>
+#else
+#include <rclcpp/rclcpp.hpp>
+#endif
 
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <unordered_map>
+
+#include "utils.h"
 
 namespace creste {
 
@@ -15,9 +23,9 @@ class CresteModel {
     try {
       // Load the TorchScript model onto CUDA
       model_ = torch::jit::load(model_path, torch::kCUDA);
-      ROS_INFO("Model loaded successfully from %s", model_path.c_str());
+      LOG_INFO("Model loaded successfully from %s", model_path.c_str());
     } catch (const c10::Error& e) {
-      ROS_ERROR("Error loading the model: %s", e.what());
+      LOG_ERROR("Error loading the model: %s", e.what());
     }
   }
 
@@ -49,3 +57,4 @@ class CresteModel {
 };
 
 }  // namespace creste
+#endif  // CRESTE_H_
