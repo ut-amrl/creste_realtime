@@ -163,16 +163,6 @@ if(USE_ROS1)
     pcl_conversions
   )
 
-  # Example: second executable
-  # rosbuild_add_executable(publisher_node
-  #   src/publisher_node_main.cc
-  # )
-  # target_link_libraries(publisher_node
-  #   roslib roscpp
-  #   ${non_ros_libs}
-  #   pcl_conversions
-  # )
-
 else()
   # ------------------------------------------
   # Build with ament_cmake (ROS2)
@@ -184,9 +174,7 @@ else()
     src/visualization.cc
   )
   target_link_libraries(creste_node
-    # Link your non-ROS libs
     ${non_ros_libs}
-    # Also link rclcpp
     rclcpp::rclcpp
   )
   ament_target_dependencies(creste_node
@@ -200,24 +188,6 @@ else()
     pcl_conversions
   )
 
-  # Example: second executable
-  # add_executable(publisher_node
-  #   src/publisher_node_main.cc
-  # )
-  # target_link_libraries(publisher_node
-  #   ${non_ros_libs}
-  #   rclcpp::rclcpp
-  # )
-  # ament_target_dependencies(publisher_node
-  #   rclcpp
-  #   sensor_msgs
-  #   geometry_msgs
-  #   amrl_msgs
-  #   cv_bridge
-  #   tf2
-  #   tf2_ros
-  #   pcl_conversions
-  # )
 endif()
 
 # --------------------------------------------------------------------

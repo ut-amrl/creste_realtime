@@ -1,47 +1,51 @@
 model_params:
-  weights_path: "./traversability_model_trace_distill128_cfs_rgbonly.pt"
-  static_output_dim: 32
+  weights_path: "./frodo_ckpts/traversability_model_trace_frozendinov2_nocfs.pt"
+  static_output_dim: 64
   modality: "monocular"
 map_params:
   resolution: 0.1
-  height: 25.6
-  width: 25.6
-  origin_x: 12.8
-  origin_y: 12.8
+  height: 19.2
+  width: 19.2
+  origin_x: 9.6
+  origin_y: 9.6
   # map_to_world: [0.0, 5.0, -2.0]
   map_to_base_link: [0.0, 0.0, 0.0] # Note we denote world=base_link
-planner_params:
-  max_v: 1.0
-  # max_w: 1.57079
-  max_w: 0.3
-  # max_w: 0.0 
-  max_dv: 0.2
-  # max_dw: 0.78539
-  max_dw: 0.15
-  partitions: 11
-  dt: 1.0
-  max_iters: 10000
-  # Set max time to 0.0 to not use 
-  max_time: 0.0
-  goal_tolerance: 0.5
-  cost_weight: 1.5
-input_topics: # Uses these to determine
-  left_image: "/front_camera/compressed"
-  left_camera_info: "/front_camera/camera_infos"
-  right_image: ""
-  right_camera_info: ""
-  pointcloud: ""
+input_topics:
+  - type: image
+    camera_id: "front_camera"
+    image_topic: "/front_camera/compressed"
+    info_topic: "/front_camera/camera_infos"
+    target_shape: [288, 512]  # Example: resize input image to this size
+    ds_factor: [0.5, 0.125] # Input downsample factor, Output downsample factor
+    tf_frames: ["base_link", "front_optical"] # src -> target
+  - type: image
+    camera_id: "rear_camera"
+    image_topic: "/rear_camera/compressed"
+    info_topic: "/rear_camera/camera_infos"
+    target_shape: [360, 540]
+    ds_factor: [1.0, 0.25]
+    tf_frames: ["base_link", rear_optical]
+
 output_topics:
-  depth: "/creste/front_camera/depth"
-  traversability: "/creste/bev/traversability"
-  semantic_elevation: "/creste/semantic_elevation"
+  - type: depth
+    key: "front_camera/depth_preds_metric"
+    topic_name: "/creste/front_camera/depth"
+  - type: depth
+    key: "rear_camera/depth_preds_metric"
+    topic_name: "/creste/rear_camera/depth"
+  - type: traversability
+    key: "traversability_cost"
+    topic_name: "/creste/bev/traversability"
+  # - type: debug
+  #   topic_name: "/creste/semantic_elevation"
+
 viz_params:
   history_window: 3
   viz_3d: False
 
-pt2pix: # LiDAR to Rectified Camera Pixels (Full resolution)
-  rows: 3
-  cols: 4
+# pt2pix: # LiDAR to Rectified Camera Pixels (Full resolution)
+#   rows: 3
+#   cols: 4
   # data: [ # 2024-11-17
   #   295.64482, -380.52208, -44.44967, 92.68059,
   #   195.38800, 7.27873, -411.18572, 62.37294,
@@ -82,14 +86,14 @@ pt2pix: # LiDAR to Rectified Camera Pixels (Full resolution)
   #   222.3181943734818, 5.815265363826277, -390.7515741323514, 70.05054410720905, 
   #   0.9976823262605736, 0.021959678709886483, -0.06440301528848538, 0.08707664590138037
   # ]
-  data: [ # 2025-02-25 stereo (hot glue)
-    307.77034294176286, -376.9318927114526, -36.93244716951008, 69.54334110269916,
-    194.78443474278797, 2.5288275167080934, -413.39680405673676, 71.61780093862754,
-    0.99114790847196, 0.024594949334425596, -0.13046421731224273, 0.1060113496929227
-  ]
-pix2pt: # Rectified Camera Pixels to LiDAR (Downsampled)
-  rows: 4
-  cols: 4
+#   data: [ # 2025-02-25 stereo (hot glue)
+#     307.77034294176286, -376.9318927114526, -36.93244716951008, 69.54334110269916,
+#     194.78443474278797, 2.5288275167080934, -413.39680405673676, 71.61780093862754,
+#     0.99114790847196, 0.024594949334425596, -0.13046421731224273, 0.1060113496929227
+#   ]
+# pix2pt: # Rectified Camera Pixels to LiDAR (Downsampled)
+#   rows: 4
+#   cols: 4
   # data: [ # 2024-11-17
   #   0.0000443, -0.0013571,  1.0720886, -0.0883973,
   #   -0.0104583,  0.0001569,  0.7718496,  0.1617347,
@@ -138,9 +142,9 @@ pix2pt: # Rectified Camera Pixels to LiDAR (Downsampled)
   #   -0.0000261, -0.010627,   0.5940462,  0.1348564,
   #   0.,         0.,         0.,         1.
   # ]
-  data: [ # 2024-02-25 (stereo hot glue)
-    0.0002662, -0.0013554,  1.0548561, -0.0921877,
-    -0.0104007, -0.000096,   0.8121189,  0.0964495,
-    0.0000618, -0.0103152,  0.5019953,  0.1303953,
-    0.,         0.,         0.,         1.
-  ]
+  # data: [ # 2024-02-25 (stereo hot glue)
+  #   0.0002662, -0.0013554,  1.0548561, -0.0921877,
+  #   -0.0104007, -0.000096,   0.8121189,  0.0964495,
+  #   0.0000618, -0.0103152,  0.5019953,  0.1303953,
+  #   0.,         0.,         0.,         1.
+  # ]

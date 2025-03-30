@@ -212,8 +212,7 @@ void PublishTraversability(
 
 void PublishCompletedDepth(
     const std::unordered_map<std::string, torch::Tensor>& output,
-    const std::string& key, Publisher depth_pub
-  ) {
+    const std::string& key, Publisher depth_pub) {
   if (!output.count(key)) {
     LOG_WARN("Key %s not found. Skipping PublishCompletedDepth.", key.c_str());
     return;
@@ -237,25 +236,16 @@ void PublishCompletedDepth(
   double minv, maxv;
   cv::minMaxLoc(depth_mat, &minv, &maxv);
 
-  cv::Mat depth_8u;
-  if (minv == maxv) {
-    depth_mat.convertTo(depth_8u, CV_8UC1, 1.0, 0.0);
-  } else {
-    depth_mat.convertTo(depth_8u, CV_8UC1, 255.0 / (maxv - minv),
-                        -255.0 * minv / (maxv - minv));
-  }
+  cv::Mat depth_mm;
+  depth_mat.convertTo(depth_mm, CV_16UC1, 1000.0);
 
-  auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", depth_8u)
+  auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "mono16", depth_mm)
                  .toImageMsg();
   msg->header.stamp = GET_TIME;
   msg->header.frame_id = "left_optical";
 
-#ifdef ROS1
-  depth_pub.publish(*msg);
-#else
   depth_pub->publish(*msg);
-#endif
-  LOG_INFO("Published normalized depth image (ROS2).");
+  LOG_INFO("Published mono16 depth image (ROS2).");
 }
 
 }  // namespace creste

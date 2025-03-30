@@ -17,16 +17,10 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
+  <depend>amrl_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>pcl_conversions</depend>
-
-  <!-- If you have your own custom messages: -->
-  <depend>amrl_msgs</depend>
-  <!-- <depend>foxglove_msgs</depend> -->
-
-  <!-- Because gflags/glog are not standard ROS2 dependencies, they aren't declared here.
-       Instead, they're handled via system dependencies or your own CMake logic. -->
 
   <!-- Exporting the build type -->
   <export>

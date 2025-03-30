@@ -11,11 +11,14 @@ display_usage() {
 }
 
 DEFAULT_IMAGE_NAME="amrl-infra-ros1"
+
+LOCAL_MSGS_DIR="$HOME/frodo_autonomy/src/amrl_msgs"
+TARGET_CRESTE_DIR="/creste_ws/src"
+
 # Default directory mounts
 default_mounts=(
-    "./:/home/creste_realtime"
-    "~/amrl_infrastructure/amrl_msgs:/home/amrl_infrastructure/amrl_msgs"
-    "~/frodo_baseline_ws/dryrunbags:/home/dryrunbags"
+    "./:$TARGET_CRESTE_DIR/creste_realtime"
+    "$LOCAL_MSGS_DIR:$TARGET_CRESTE_DIR/amrl_msgs"
 )
 
 # Parse command-line arguments

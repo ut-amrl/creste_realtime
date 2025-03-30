@@ -8,48 +8,18 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
-#include <opencv2/opencv.hpp>
-
-// Conditional includes for ROS1 vs. ROS2
-#ifdef ROS1
-#include <geometry_msgs/PoseStamped.h>
-#include <nav_msgs/Path.h>
-#include <ros/ros.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/CompressedImage.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <std_msgs/Float32MultiArray.h>
-
-#include "amrl_msgs/CostmapSrv.h"
-
-// Type aliases for ROS1
-using CostmapSrv = amrl_msgs::CostmapSrv;
-using Image = sensor_msgs::Image;
-using CompressedImage = sensor_msgs::CompressedImage;
-using CompressedImagePtr = sensor_msgs::CompressedImagePtr;
-using CompressedImageConstPtr = sensor_msgs::CompressedImageConstPtr;
-using CameraInfo = sensor_msgs::CameraInfo;
-using CameraInfoConstPtr = sensor_msgs::CameraInfoConstPtr;
-using PointCloud2 = sensor_msgs::PointCloud2;
-using PointCloud2ConstPtr = sensor_msgs::PointCloud2ConstPtr;
-using PoseStamped = geometry_msgs::PoseStamped;
-using Path = nav_msgs::Path;
-// etc. for other message types if needed
-
-using NodeHandleType = ros::NodeHandle;
-
-#else  // ROS2
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <tf2_msgs/msg/tf_message.hpp>
 
 #include "amrl_msgs/srv/costmap_srv.hpp"
 
-// Type aliases for ROS2
 using CostmapSrv = amrl_msgs::srv::CostmapSrv;
 using Image = sensor_msgs::msg::Image;
 using CompressedImage = sensor_msgs::msg::CompressedImage;
@@ -60,9 +30,8 @@ using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointCloud2ConstPtr = sensor_msgs::msg::PointCloud2::SharedPtr;
 using PoseStamped = geometry_msgs::msg::PoseStamped;
 using Path = nav_msgs::msg::Path;
-
+using TransformStamped = geometry_msgs::msg::TransformStamped;
 using NodeHandleType = rclcpp::Node::SharedPtr;
-#endif
 
 #include <mutex>
 #include <queue>
@@ -77,40 +46,55 @@ using NodeHandleType = rclcpp::Node::SharedPtr;
 
 namespace creste {
 
+/** Handler for a single camera. */
 struct CameraHandler {
   bool enabled = false;
-  std::string camera_name;  // e.g. "left" or "right"
+  std::string camera_name;
   std::string image_topic;
   std::string info_topic;
+  std::vector<int> target_shape;       // e.g. [H, W]
+  std::vector<float> ds_factor;        // e.g. [1, 1]
+  std::vector<std::string> tf_frames;  // e.g. [src_frame, target_frame]
+  Eigen::Matrix4f extrinsics =
+      Eigen::Matrix4f::Identity();  // camera extrinsics
 
-#ifdef ROS1
-  ros::Subscriber image_sub;
-  ros::Subscriber info_sub;
-#else
   rclcpp::Subscription<CompressedImage>::SharedPtr image_sub;
   rclcpp::Subscription<CameraInfo>::SharedPtr info_sub;
-#endif
 
   // Queues
   std::queue<CompressedImageConstPtr> image_queue;
-  std::mutex queue_mutex;  // Protects image_queue
+  std::mutex queue_mutex;
 
   // Camera info & rectification data
   CameraInfo camera_info;
+  cv::Mat new_K;  // new camera matrix
   bool has_rectification{false};
   cv::Mat map1, map2;  // rectification maps
 };
 
+/** Handler for LiDAR/pointcloud data. */
+struct CloudHandler {
+  bool enabled = false;
+  std::string cloud_topic;
+  std::string tf_frame;
+
+  rclcpp::Subscription<PointCloud2>::SharedPtr cloud_sub;
+
+  // Queues
+  std::queue<PointCloud2ConstPtr> cloud_queue;
+  std::mutex queue_mutex;
+};
+
+struct PredictionHandler {
+  std::string type;
+  std::string key;
+  std::string topic;
+};
+
 class CresteNode {
  public:
-#ifdef ROS1
-  CresteNode(const std::string& config_path, const std::string& weights_path,
-             const ros::NodeHandle& nh = ros::NodeHandle());
-#else
-  // For ROS2, we pass a NodeHandleType which is rclcpp::Node::SharedPtr
   CresteNode(const std::string& config_path, const std::string& weights_path,
              NodeHandleType node);
-#endif
 
   void run();
   void inference();
@@ -118,59 +102,60 @@ class CresteNode {
  private:
   // === Callbacks ===
   void PointCloudCallback(const PointCloud2ConstPtr msg);
+  void CameraImageCallback(const CompressedImageConstPtr msg,
+                           size_t sensor_idx);
+  void CameraInfoCallback(const CameraInfoConstPtr msg, size_t sensor_idx);
 
-  void CameraImageCallback(const CompressedImageConstPtr msg, size_t cam_idx);
-  void CameraInfoCallback(const CameraInfoConstPtr msg, size_t cam_idx);
+  // NEW: /tf callback
+  void TFCallback(const tf2_msgs::msg::TFMessage::SharedPtr msg);
 
   // === Helper functions ===
-#ifdef ROS1
-  bool CostmapCallback(amrl_msgs::CostmapSrv::Request& req,
-                       amrl_msgs::CostmapSrv::Response& res);
-#else
-  // ROS2 service callback signature typically uses shared_ptr for
-  // request/response
   bool CostmapCallback(const std::shared_ptr<CostmapSrv::Request> req,
                        std::shared_ptr<CostmapSrv::Response> res);
-#endif
 
   void LoadCalibParams(const YAML::Node& config);
 
-  std::tuple<torch::Tensor, torch::Tensor> ProcessInputs(
+  /**
+   * Gathers matched camera + cloud data, builds model input,
+   * uses the transforms from tf_frames if needed
+   */
+  std::vector<torch::Tensor> ProcessInputs(
       const PointCloud2ConstPtr& cloud_msg,
       const std::vector<CompressedImageConstPtr>& camera_imgs);
 
   bool is_cell_visible(int i, int j, int grid_height, int grid_width);
 
+  Eigen::Matrix4f GetPix2PtMatrix(const CameraHandler& cam_handler,
+                                  float ds_factor);
+
+  Eigen::Matrix4f GetPt2PixMatrix(const CameraHandler& cam_handler,
+                                  float ds_factor);
+
  private:
-#ifdef ROS1
-  ros::NodeHandle nh_;
-  // Service server
-  ros::ServiceServer costmap_service_;
-  // Subscriber
-  ros::Subscriber pointcloud_subscriber_;
-  // Publishers
-  ros::Publisher depth_publisher_;
-  ros::Publisher traversability_publisher_;
-  ros::Publisher semantic_elevation_publisher_;
-#else
   NodeHandleType node_;
+
   // Service
   rclcpp::Service<CostmapSrv>::SharedPtr costmap_service_;
-  // Subscriber
+
+  // Subscriptions
   rclcpp::Subscription<PointCloud2>::SharedPtr pointcloud_subscriber_;
+
+  rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr tf_subscriber_;
+  // Store transforms in a map: child_frame -> TransformStamped
+  std::mutex tf_mutex_;
+  std::unordered_map<std::string, TransformStamped> tf_map_;
+
   // Publishers
-  rclcpp::Publisher<Image>::SharedPtr depth_publisher_;
+  std::unordered_map<std::string, rclcpp::Publisher<Image>::SharedPtr>
+      depth_publishers_;
   rclcpp::Publisher<Image>::SharedPtr traversability_publisher_;
   rclcpp::Publisher<Image>::SharedPtr semantic_elevation_publisher_;
-#endif
 
   // Services, planners
   std::shared_ptr<CarrotPlanner> carrot_planner_;
 
   // LiDAR / Cloud
-  bool enable_cloud_{false};
-  std::queue<PointCloud2ConstPtr> cloud_queue_;
-  std::mutex cloud_queue_mutex_;
+  std::unique_ptr<CloudHandler> cloud_;
 
   // Cameras
   std::vector<std::unique_ptr<CameraHandler>> cameras_;
@@ -186,8 +171,8 @@ class CresteNode {
   std::shared_ptr<std::unordered_map<std::string, torch::Tensor>>
       model_outputs_;
   std::string modality_;
+  std::unordered_map<std::string, PredictionHandler> predictions_;
 
-  CalibInfo pt2pix_, pix2pt_;  // LiDAR <-> camera calibration
   torch::Tensor fov_mask_;
 
   torch::Tensor semantic_history_;

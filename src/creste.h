@@ -35,9 +35,11 @@ class CresteModel {
    * returns a dictionary of named Tensors.
    */
   std::unordered_map<std::string, torch::Tensor> forward(
-      const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
+      const std::vector<torch::Tensor>& inputs) {
+    // const const std::tuple<torch::Tensor, torch::Tensor>& inputs) {
     // Run the model
-    c10::IValue output = model_.forward({inputs});
+    torch::IValue list_arg(inputs);
+    c10::IValue output = model_.forward({list_arg});
 
     // Convert the IValue output (which should be a dictionary) to a GenericDict
     auto dict = output.toGenericDict();

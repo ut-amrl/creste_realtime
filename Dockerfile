@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-std-msgs \
     ros-humble-pcl-conversions \
     python3-argcomplete \
+    python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------
@@ -99,8 +100,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev &
 # 5) Additional environment additions
 # -----------------------------------------------------------
 # Make sure /usr/local/lib is in LD_LIBRARY_PATH
-RUN echo "export LD_LIBRARY_PATH=/usr/local/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc
-RUN echo "export AMENT_PREFIX_PATH=\$AMENT_PREFIX_PATH:/home/amrl_infrastructure/amrl_msgs" >> ~/.bashrc
+RUN echo "export LD_LIBRARY_PATH=/usr/local/libtorch/lib:/usr/local/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc
+RUN echo "export AMENT_PREFIX_PATH=\$AMENT_PREFIX_PATH:/creste_ws/src/amrl_msgs" >> ~/.bashrc
+
+WORKDIR /creste_ws
 
 # Example: if you want to define a custom CMD that always sources ROS2
 CMD ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && exec bash"]
