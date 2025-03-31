@@ -1,6 +1,8 @@
 #include "creste_node.h"
 
 #include "utils.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
 
 // For time difference in seconds
 #define TIME_DIFF(start, end) ((end - start).seconds())
@@ -260,6 +262,8 @@ void CresteNode::CameraInfoCallback(const CameraInfoConstPtr msg,
 }
 
 void CresteNode::run() {
+  static bool kDebug = FLAGS_v > 1;
+
   // 0) Drop old data
   auto now = GET_TIME;
   int64_t now_ns = to_nanoseconds(now);
@@ -317,7 +321,7 @@ void CresteNode::run() {
   }
 
   if (!all_cameras_ok) return;
-  LOG_INFO("All cameras ready");
+  if (kDebug) LOG_INFO("All cameras ready");
 
   // 2) Check cloud if needed
   PointCloud2ConstPtr front_cloud = nullptr;
@@ -371,14 +375,17 @@ void CresteNode::run() {
     std::lock_guard<std::mutex> lk(cloud_->queue_mutex);
     if (!cloud_->cloud_queue.empty()) cloud_->cloud_queue.pop();
   }
-  LOG_INFO("Data synchronized");
+
   // Store in latest
   {
     std::lock_guard<std::mutex> lk(latest_msg_mutex_);
     latest_camera_msgs_ = front_images;
     latest_cloud_msg_ = front_cloud;
   }
-  LOG_INFO("Running inference");
+
+  if (kDebug) {
+    LOG_INFO("Running inference");
+  }
   // Launch inference
   inference();
 }
@@ -386,6 +393,7 @@ void CresteNode::run() {
 void CresteNode::inference() {
   // Acquire snapshots
   if (!model_) return;
+  static bool kDebug = FLAGS_v > 1;
 
   std::vector<CompressedImageConstPtr> camera_imgs;
   PointCloud2ConstPtr cloud_msg;
@@ -409,8 +417,8 @@ void CresteNode::inference() {
   auto start = GET_TIME;
   auto inputs = ProcessInputs(cloud_msg, camera_imgs);
   auto end = GET_TIME;
-  LOG_INFO("Inference(): Input processing time: %f seconds",
-           TIME_DIFF(start, end));
+
+  if (kDebug) LOG_INFO("Inference(): Input processing time: %f seconds", TIME_DIFF(start, end));
 
   if (inputs.empty()) {
     LOG_ERROR("Inference(): Failed to process inputs");
@@ -421,9 +429,10 @@ void CresteNode::inference() {
   start = GET_TIME;
   auto tensor_map = model_->forward(inputs);
   end = GET_TIME;
-  LOG_INFO("Inference(): Model Inference time: %f seconds",
+  if (kDebug) {
+    LOG_INFO("Inference(): Model Inference time: %f seconds",
            TIME_DIFF(start, end));
-
+  }
   // 3) Post-processing (construct cost map, etc.)
   start = GET_TIME;
 
@@ -549,11 +558,12 @@ void CresteNode::inference() {
         std::make_shared<std::unordered_map<std::string, torch::Tensor>>(
             tensor_map);
   }
-  LOG_INFO("Stored model outputs.");
+  if (kDebug) {
+    LOG_INFO("Stored model outputs.");
 
-  end = GET_TIME;
-  LOG_INFO("Map Processing time: %f seconds", TIME_DIFF(start, end));
-
+    end = GET_TIME;
+    LOG_INFO("Map Processing time: %f seconds", TIME_DIFF(start, end));
+  }
   // // Publish model predictions
   // PublishCompletedDepth(tensor_map, "depth_preds", depth_publisher_);
   // PublishTraversability(tensor_map, "traversability_cost",
@@ -602,6 +612,8 @@ void CresteNode::inference() {
 
 Eigen::Matrix4f CresteNode::GetPix2PtMatrix(const CameraHandler& cam_handler,
                                             float ds_factor) {
+  static bool kDebug = FLAGS_v > 2;
+
   Eigen::Matrix<float, 4, 4, Eigen::RowMajor> T_cam_world =
       cam_handler.extrinsics;
   Eigen::Matrix3f K =
@@ -615,14 +627,16 @@ Eigen::Matrix4f CresteNode::GetPix2PtMatrix(const CameraHandler& cam_handler,
           cam_handler.camera_info.r.data())
           .cast<float>();
 
-  printf("Camera [%s] ds_factor: %f\n", cam_handler.camera_name.c_str(),
-         ds_factor);
-  printf("Old Camera Matrix:\n");
-  for (int r = 0; r < 3; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      printf("%8.3f ", K(r, c));
+  if (kDebug) {
+    printf("Camera [%s] ds_factor: %f\n", cam_handler.camera_name.c_str(),
+           ds_factor);
+    printf("Old Camera Matrix:\n");
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        printf("%8.3f ", K(r, c));
+      }
+      printf("\n");
     }
-    printf("\n");
   }
 
   // Downsample K by scaling focal lengths and principal point.
@@ -631,19 +645,21 @@ Eigen::Matrix4f CresteNode::GetPix2PtMatrix(const CameraHandler& cam_handler,
   K(0, 2) *= ds_factor;  // cx
   K(1, 2) *= ds_factor;  // cy
 
-  printf("New Camera Matrix:\n");
-  for (int r = 0; r < 3; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      printf("%8.3f ", K(r, c));
+  if (kDebug) {
+    printf("New Camera Matrix:\n");
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        printf("%8.3f ", K(r, c));
+      }
+      printf("\n");
     }
-    printf("\n");
-  }
-  printf("Camera extrinsics:\n");
-  for (int r = 0; r < 4; ++r) {
-    for (int c = 0; c < 4; ++c) {
-      printf("%8.3f ", T_cam_world(r, c));
+    printf("Camera extrinsics:\n");
+    for (int r = 0; r < 4; ++r) {
+      for (int c = 0; c < 4; ++c) {
+        printf("%8.3f ", T_cam_world(r, c));
+      }
+      printf("\n");
     }
-    printf("\n");
   }
 
   // Build a 4x4 T_canon with R.transpose() in the upper-left block.
@@ -694,6 +710,7 @@ Eigen::Matrix4f CresteNode::GetPt2PixMatrix(const CameraHandler& cam_handler,
 std::vector<torch::Tensor> CresteNode::ProcessInputs(
     const PointCloud2ConstPtr& cloud_msg,
     const std::vector<CompressedImageConstPtr>& camera_imgs) {
+  static bool kDebug = FLAGS_v > 2;
   // Assummed that all camera imgs are valid
   // Final outputs
   std::vector<torch::Tensor> inputs;
@@ -719,20 +736,22 @@ std::vector<torch::Tensor> CresteNode::ProcessInputs(
             .clone()
             .t();  // [4,4]
 
-    // print pix2pt matrix
-    printf("Camera [%s] pix2pt matrix:\n", cam.camera_name.c_str());
-    for (int r = 0; r < 4; ++r) {
-      for (int c = 0; c < 4; ++c) {
-        printf("%8.3f ", pix2pt(r, c));
+    if (kDebug) {
+      // print pix2pt matrix
+      printf("Camera [%s] pix2pt matrix:\n", cam.camera_name.c_str());
+      for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+          printf("%8.3f ", pix2pt(r, c));
+        }
+        printf("\n");
       }
-      printf("\n");
-    }
-    printf("Map Camera [%s] pt2pix matrix:\n", cam.camera_name.c_str());
-    for (int r = 0; r < 4; ++r) {
-      for (int c = 0; c < 4; ++c) {
-        printf("%8.3f ", pix2pt_map[cam.camera_name][r][c].item<float>());
+      printf("Map Camera [%s] pt2pix matrix:\n", cam.camera_name.c_str());
+      for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+          printf("%8.3f ", pix2pt_map[cam.camera_name][r][c].item<float>());
+        }
+        printf("\n");
       }
-      printf("\n");
     }
   }
 
@@ -883,6 +902,13 @@ std::vector<torch::Tensor> CresteNode::ProcessInputs(
       int target_w = cameras_[i]->target_shape[1];
       cv::resize(bgr, bgr, cv::Size(target_w, target_h));
 
+      // Save image for debugging
+      if (kDebug) {
+        std::string img_name = "cam_" + std::to_string(i) + ".png";
+        cv::imwrite(img_name, bgr);
+        LOG_INFO("Saved image: %s", img_name.c_str());
+      }
+
       // Normalize
       bgr.convertTo(bgr, CV_32FC3, 1.0 / 255.0);
 
@@ -902,21 +928,6 @@ std::vector<torch::Tensor> CresteNode::ProcessInputs(
           pix2pt_map[cameras_[i]->camera_name].clone().unsqueeze(0).unsqueeze(
               0);  // [1,1,4,4]
 
-      // for (size_t i = 0; i < (size_t)cam_tensor.dim(); i++) {
-      //   LOG_INFO("cam_tensor dim[%lu]: %ld", i, cam_tensor.size(i));
-      // }
-      // for (size_t i = 0; i < (size_t)pix2pt.dim(); i++) {
-      //   LOG_INFO("p2p_tensor dim[%lu]: %ld", i, pix2pt.size(i));
-      // }
-      // Print pix2pt matrix
-      printf("else statement Pix2Pt matrix for camera [%s]:\n",
-             cameras_[i]->camera_name.c_str());
-      for (int r = 0; r < 4; ++r) {
-        for (int c = 0; c < 4; ++c) {
-          printf("%8.3f ", pix2pt[0][0][r][c].item<float>());
-        }
-        printf("\n");
-      }
       p2p_tensor = torch::cat({p2p_tensor, pix2pt}, 1);
       // => [1,#cams,4,4]
       // for (size_t i = 0; i < (size_t)p2p_tensor.dim(); i++) {
@@ -939,24 +950,46 @@ std::vector<torch::Tensor> CresteNode::ProcessInputs(
 }
 
 bool CresteNode::CostmapCallback(const std::shared_ptr<CostmapSrv::Request> req,
-                                 std::shared_ptr<CostmapSrv::Response> res) {
-  // #endif
-  // Example: store model outputs in response
+  std::shared_ptr<CostmapSrv::Response> res) {
+  // 1) Retrieve cached model outputs
   std::shared_ptr<std::unordered_map<std::string, torch::Tensor>> model_outputs;
   {
     std::lock_guard<std::mutex> lock(model_outputs_mutex_);
     model_outputs = model_outputs_;
   }
+
   if (!model_outputs) {
     LOG_ERROR("Model outputs not available for costmap service.");
     res->success.data = false;
-    return true;
+    return true;  // Return from the service callback
   }
 
-  // Possibly fill in res->costmap or res.costmap
+  // 2) Get the traversability map (8-bit cost image) from the model outputs
+  if (model_outputs->find("traversability_cost") == model_outputs->end()) {
+    LOG_ERROR("Key 'traversability_cost' not found in model outputs!");
+    res->success.data = false;
+    return true;
+  }
+  const auto& traversability_map = model_outputs->at("traversability_cost");
+
+  // 3) Create an 8-bit cost map image using cv_bridge
+  cv_bridge::CvImage cv_img;
+  cv_img.header.stamp = node_->now();                // Use ROS 2 node clock
+  cv_img.header.frame_id = "base_link";
+  cv_img.encoding = sensor_msgs::image_encodings::TYPE_8UC1;
+  cv_img.image = TensorToMat(traversability_map);
+
+  // 4) Convert that to a ROS 2 Image message
+  sensor_msgs::msg::Image out_img;
+  cv_img.toImageMsg(out_img);
+
+  // 5) Populate the service response
+  res->costmap = out_img;
   res->success.data = true;
 
+  LOG_INFO("Handled costmap service request successfully.");
   return true;
 }
+
 
 }  // namespace creste

@@ -2,6 +2,9 @@
 
 #include <stdio.h>
 
+#include "gflags/gflags.h"
+#include "glog/logging.h"
+
 #ifdef ROS1
 using Publisher = ros::Publisher;
 using ImageMsg = sensor_msgs::Image;
@@ -166,6 +169,7 @@ void saveElevationImage(
 void PublishTraversability(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key, Publisher traversability_pub) {
+  static bool kDebug = FLAGS_v > 1;
   if (output.count(key) == 0) {
     LOG_WARN("Key %s not found, skipping PublishTraversability.", key.c_str());
     return;
@@ -206,13 +210,16 @@ void PublishTraversability(
   traversability_pub.publish(msg);
 #else
   traversability_pub->publish(*msg);
+  if (kDebug) {
+    LOG_INFO("Published traversability image (ROS2).");
+  }
 #endif
-  LOG_INFO("Published traversability image (ROS2).");
 }
 
 void PublishCompletedDepth(
     const std::unordered_map<std::string, torch::Tensor>& output,
     const std::string& key, Publisher depth_pub) {
+  static bool kDebug = FLAGS_v > 1;
   if (!output.count(key)) {
     LOG_WARN("Key %s not found. Skipping PublishCompletedDepth.", key.c_str());
     return;
@@ -245,7 +252,9 @@ void PublishCompletedDepth(
   msg->header.frame_id = "left_optical";
 
   depth_pub->publish(*msg);
-  LOG_INFO("Published mono16 depth image (ROS2).");
+  if (kDebug) {
+    LOG_INFO("Published traversability image (ROS2).");
+  }
 }
 
 }  // namespace creste
