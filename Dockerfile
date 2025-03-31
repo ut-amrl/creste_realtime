@@ -101,7 +101,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev &
 # -----------------------------------------------------------
 # Make sure /usr/local/lib is in LD_LIBRARY_PATH
 RUN echo "export LD_LIBRARY_PATH=/usr/local/libtorch/lib:/usr/local/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc
-RUN echo "export AMENT_PREFIX_PATH=\$AMENT_PREFIX_PATH:/creste_ws/src/amrl_msgs" >> ~/.bashrc
+# RUN echo "export AMENT_PREFIX_PATH=\$AMENT_PREFIX_PATH:/creste_ws/src/amrl_msgs" >> ~/.bashrc
 
 WORKDIR /creste_ws
 

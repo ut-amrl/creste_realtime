@@ -160,6 +160,10 @@ class CresteNode {
   // Cameras
   std::vector<std::unique_ptr<CameraHandler>> cameras_;
 
+  // Cut off all messages older than this relative time offset
+  double stale_cutoff_ms_;
+  double sync_cutoff_ms_;
+
   // For the final matched messages each cycle:
   PointCloud2ConstPtr latest_cloud_msg_;
   std::vector<CompressedImageConstPtr> latest_camera_msgs_;

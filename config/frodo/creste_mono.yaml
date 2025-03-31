@@ -25,6 +25,8 @@ input_topics:
     target_shape: [360, 540]
     ds_factor: [1.0, 0.25]
     tf_frames: ["base_link", rear_optical]
+stale_cutoff_ms: 0.0 # Remove all messages older than this time, <=0.0 for no cutoff 
+sync_cutoff_ms: 500.0 # Time to wait for all sensors to be synced
 
 output_topics:
   - type: depth

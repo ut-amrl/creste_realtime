@@ -32,6 +32,8 @@ CresteNode::CresteNode(const std::string& config_path,
   }
 
   modality_ = config["model_params"]["modality"].as<std::string>("rgbd");
+  stale_cutoff_ms_ = config["stale_cutoff_ms"].as<double>(1000.0);
+  sync_cutoff_ms_ = config["sync_cutoff_ms"].as<double>(200.0);
 
   // Loop through dictionaries in input topics field
   if (config["input_topics"] && config["input_topics"].IsSequence()) {
@@ -267,38 +269,47 @@ void CresteNode::run() {
   // 0) Drop old data
   auto now = GET_TIME;
   int64_t now_ns = to_nanoseconds(now);
-  int64_t cutoff_ns = now_ns - (1000LL * 1000000LL);  // 1000 ms
+  int64_t cutoff_ns = now_ns - (stale_cutoff_ms_ * 1000000LL);  // 1000 ms
 
-  // Clear old camera messages
-  for (auto& cam_ptr : cameras_) {
-    if (!cam_ptr->enabled) continue;
-    std::lock_guard<std::mutex> lk(cam_ptr->queue_mutex);
-    while (!cam_ptr->image_queue.empty()) {
-      auto front_msg = cam_ptr->image_queue.front();
-      int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
-      // LOG_INFO("Camera [%s] front_ts_ns: %ld", cam_ptr->camera_name.c_str(),
-      //          front_ts_ns);
-      // LOG_INFO("Now_seconds: %lf", now_ns * 1e-9);
-      if (front_ts_ns < cutoff_ns) {
-        cam_ptr->image_queue.pop();
-      } else {
-        break;
+  if (stale_cutoff_ms_ > 0.0) {
+    if (kDebug) LOG_INFO("Dropping old data. Cutoff time: %lf seconds", stale_cutoff_ms_);
+    // Clear old camera messages
+    for (auto& cam_ptr : cameras_) {
+      if (!cam_ptr->enabled) continue;
+      std::lock_guard<std::mutex> lk(cam_ptr->queue_mutex);
+      while (!cam_ptr->image_queue.empty()) {
+        auto front_msg = cam_ptr->image_queue.front();
+        int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
+        // LOG_INFO("Camera [%s] front_ts_ns: %ld", cam_ptr->camera_name.c_str(),
+        //          front_ts_ns);
+        // LOG_INFO("Now_seconds: %lf", now_ns * 1e-9);
+        if (front_ts_ns < cutoff_ns) {
+          if (kDebug) {
+            LOG_INFO("Dropping old camera [%s] frame",
+                    cam_ptr->camera_name.c_str());
+          }
+          cam_ptr->image_queue.pop();
+        } else {
+          break;
+        }
       }
     }
-  }
 
-  // Cloud queue
-  if (cloud_ && cloud_->enabled) {
-    std::lock_guard<std::mutex> lk(cloud_->queue_mutex);
-    while (!cloud_->cloud_queue.empty()) {
-      auto front_msg = cloud_->cloud_queue.front();
-      int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
-      if (front_ts_ns < cutoff_ns) {
-        cloud_->cloud_queue.pop();
-      } else {
-        break;
+    // Cloud queue
+    if (cloud_ && cloud_->enabled) {
+      std::lock_guard<std::mutex> lk(cloud_->queue_mutex);
+      while (!cloud_->cloud_queue.empty()) {
+        auto front_msg = cloud_->cloud_queue.front();
+        int64_t front_ts_ns = to_nanoseconds(front_msg->header.stamp);
+        if (front_ts_ns < cutoff_ns) {
+          cloud_->cloud_queue.pop();
+        } else {
+          break;
+        }
       }
     }
+  } else {
+    if (kDebug) LOG_INFO("Cutoff time not set. Not dropping old data.");
   }
 
   // 1) Gather front images
@@ -311,9 +322,11 @@ void CresteNode::run() {
     std::lock_guard<std::mutex> lk(cam.queue_mutex);
     if (cam.image_queue.empty() || !cam.has_rectification) {
       all_cameras_ok = false;
-      // LOG_INFO("Camera [%s] not ready", cam.camera_name.c_str());
-      // LOG_INFO("Queue size: %ld", cam.image_queue.size());
-      // LOG_INFO("Rectification: %d", cam.has_rectification);
+      if (kDebug) {
+        LOG_INFO("Camera [%s] not ready", cam.camera_name.c_str());
+        LOG_INFO("Queue size: %ld", cam.image_queue.size());
+        LOG_INFO("Rectification: %d", cam.has_rectification);
+      }
       break;
     }
     front_images[i] = cam.image_queue.front();
@@ -345,7 +358,7 @@ void CresteNode::run() {
     max_ts = std::max(max_ts, cloud_ts);
   }
 
-  static constexpr int64_t kSyncThresholdNs = 100LL * 1000000LL;  // 100 ms
+  int64_t kSyncThresholdNs = sync_cutoff_ms_ * 1000000LL;  // 100 ms
   if ((max_ts - min_ts) > kSyncThresholdNs) {
     // Drop oldest
     for (size_t i = 0; i < cameras_.size(); ++i) {

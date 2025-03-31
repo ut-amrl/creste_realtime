@@ -17,7 +17,7 @@ You do not need to install ROS Noetic if working in the docker container.
 ## Docker Container Usage
 
 Make sure to modify the `run_docker.sh` script to mount the correct `amrl_msgs` directory. The directory is
-by default set to `/robodata/arthurz/Research/amrl_infrastructure/amrl_msgs:/home/amrl_msg`. You must change the
+by default set to `$HOME/frodo_autonomy/src/amrl_msgs:/creste_ws/src/amrl_msgs`. You must change the
 first path to the location of your `amrl_msgs` directory.
 ```bash
 ./run_docker.sh

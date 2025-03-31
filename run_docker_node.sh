@@ -10,16 +10,20 @@ display_usage() {
     echo "  -m: Mounts in the format src:dst (space-separated for multiple mounts)"
 }
 
-DEFAULT_IMAGE_NAME="amrl-infra-ros1"
+DEFAULT_IMAGE_NAME="creste_realtime_ros2"
+DEFAULT_CONTAINER_NAME="creste_realtime_container"
 
-LOCAL_MSGS_DIR="$HOME/frodo_autonomy/src/amrl_msgs"
+FRODO_WS_DIR="$HOME/frodo_autonomy"
 TARGET_CRESTE_DIR="/creste_ws/src"
 
 # Default directory mounts
 default_mounts=(
-    "./:$TARGET_CRESTE_DIR/creste_realtime"
-    "$LOCAL_MSGS_DIR:$TARGET_CRESTE_DIR/amrl_msgs"
+    "$FRODO_WS_DIR/src/creste_realtime:$TARGET_CRESTE_DIR/creste_realtime"
+    "$FRODO_WS_DIR/src/amrl_msgs:$TARGET_CRESTE_DIR/amrl_msgs"
 )
+
+RUN_SCRIPT="$TARGET_CRESTE_DIR/creste_realtime/scripts/run_inference.sh"
+MOUNTS=()
 
 # Parse command-line arguments
 while getopts "n:i:m:" opt; do
@@ -31,16 +35,23 @@ while getopts "n:i:m:" opt; do
     esac
 done
 
-# Assign default container name if not provided
+# Assign default image name if not provided
 if [ -z "$IMAGE_NAME" ]; then
     IMAGE_NAME=$DEFAULT_IMAGE_NAME
+    echo "Image name not provided. Using default: $IMAGE_NAME"
 fi
 
 # Check if required arguments are provided
 if [ -z "$CONTAINER_NAME" ]; then
-    echo "Error: Container name not provided"
-    display_usage
-    exit 1
+    CONTAINER_NAME=$DEFAULT_CONTAINER_NAME
+    echo "Container name not provided. Using default: $CONTAINER_NAME"
+fi
+
+# Kill existing container with the same name (if it exists)
+existing_container=$(docker ps -a -q --filter "name=^/${CONTAINER_NAME}$")
+if [ -n "$existing_container" ]; then
+    echo "Container '$CONTAINER_NAME' exists. Killing it..."
+    docker rm -f "$CONTAINER_NAME"
 fi
 
 # Construct the Docker run command
@@ -62,7 +73,8 @@ if [ ! -z "$MOUNTS" ]; then
     done
 fi
 
-DOCKER_CMD+=" $IMAGE_NAME"
+# Append the image name and the startup command
+DOCKER_CMD+=" $IMAGE_NAME bash -c '$RUN_SCRIPT'"
 
 # Print and execute the command
 echo "Running: $DOCKER_CMD"
