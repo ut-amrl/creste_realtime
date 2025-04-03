@@ -253,7 +253,24 @@ void PublishCompletedDepth(
 
   depth_pub->publish(*msg);
   if (kDebug) {
-    LOG_INFO("Published traversability image (ROS2).");
+    // Normalize and save predicted depth image for debugging
+    cv::Mat depth_8u;
+    if (minv == maxv) {
+      depth_mat.convertTo(depth_8u, CV_8UC1, 1.0, 0.0);
+    } else {
+      depth_mat.convertTo(depth_8u, CV_8UC1, 255.0 / (maxv - minv),
+                          -255.0 * minv / (maxv - minv));
+    }
+    cv::Mat color_map;
+    cv::applyColorMap(depth_8u, color_map, cv::COLORMAP_JET);
+    std::string safe_key = std::regex_replace(key, std::regex{"/"}, "_");
+    std::string filename = safe_key + ".png";
+    if (!cv::imwrite(filename, color_map)) {
+      std::cout << "Failed to save " << filename;
+    } else {
+      std::cout << "Saved depth image to " << filename;
+    }
+    LOG_INFO("Published depth image (ROS2).");
   }
 }
 

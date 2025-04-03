@@ -4,6 +4,7 @@
 **/bin/**
 **/lib/**
 **/install/**
+**/log/**
 *.pt
 *.png
 *.bkp

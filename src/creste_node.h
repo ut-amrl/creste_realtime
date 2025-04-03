@@ -64,6 +64,7 @@ struct CameraHandler {
   // Queues
   std::queue<CompressedImageConstPtr> image_queue;
   std::mutex queue_mutex;
+  int queue_size;
 
   // Camera info & rectification data
   CameraInfo camera_info;
@@ -83,6 +84,7 @@ struct CloudHandler {
   // Queues
   std::queue<PointCloud2ConstPtr> cloud_queue;
   std::mutex queue_mutex;
+  int queue_size;
 };
 
 struct PredictionHandler {

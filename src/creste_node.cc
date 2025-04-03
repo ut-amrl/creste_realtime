@@ -54,6 +54,8 @@ CresteNode::CresteNode(const std::string& config_path,
         cam->target_shape = topic_cfg["target_shape"].as<std::vector<int>>();
         cam->ds_factor = topic_cfg["ds_factor"].as<std::vector<float>>();
         cam->tf_frames = topic_cfg["tf_frames"].as<std::vector<std::string>>();
+        cam->queue_size =
+            topic_cfg["queue_size"].as<int>(10);  // default queue size
 
         // Create subscribers
         if (!cam->image_topic.empty()) {
@@ -221,6 +223,11 @@ void CresteNode::PointCloudCallback(const PointCloud2ConstPtr msg) {
   auto& cloud = *(cloud_);
   std::lock_guard<std::mutex> lk(cloud.queue_mutex);
   // LOG_INFO("PointCloud callback");
+  while (int(cloud.cloud_queue.size()) >= cloud.queue_size) {
+    LOG_WARN("Cloud queue full. Dropping old data.");
+    cloud.cloud_queue.pop();
+  }
+
   cloud.cloud_queue.push(msg);
 }
 
@@ -231,6 +238,13 @@ void CresteNode::CameraImageCallback(const CompressedImageConstPtr msg,
   // LOG_INFO("Camera [%s] with timestamp [%lf] callback",
   // cam.camera_name.c_str(),
   //          msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9);
+  // Prune old data if queue is full
+  while (int(cam.image_queue.size()) >= cam.queue_size) {
+    LOG_WARN("Camera [%s] queue full. Dropping old data.",
+             cam.camera_name.c_str());
+    cam.image_queue.pop();
+  }
+
   cam.image_queue.push(msg);
 }
 
@@ -313,7 +327,7 @@ void CresteNode::run() {
   }
 
   // 1) Gather front images
-  std::vector<CompressedImageConstPtr> front_images(cameras_.size(), nullptr);
+  std::vector<CompressedImageConstPtr> cam_images(cameras_.size(), nullptr);
   bool all_cameras_ok = true;
   std::vector<int64_t> camera_ts_ns(cameras_.size(), 0);
   for (size_t i = 0; i < cameras_.size(); i++) {
@@ -329,8 +343,8 @@ void CresteNode::run() {
       }
       break;
     }
-    front_images[i] = cam.image_queue.front();
-    camera_ts_ns[i] = to_nanoseconds(front_images[i]->header.stamp);
+    cam_images[i] = cam.image_queue.front();
+    camera_ts_ns[i] = to_nanoseconds(cam_images[i]->header.stamp);
   }
 
   if (!all_cameras_ok) return;
@@ -358,7 +372,7 @@ void CresteNode::run() {
     max_ts = std::max(max_ts, cloud_ts);
   }
 
-  int64_t kSyncThresholdNs = sync_cutoff_ms_ * 1000000LL;  // 100 ms
+  int64_t kSyncThresholdNs = sync_cutoff_ms_ * 1000000LL;  // ms->ns
   if ((max_ts - min_ts) > kSyncThresholdNs) {
     // Drop oldest
     for (size_t i = 0; i < cameras_.size(); ++i) {
@@ -392,7 +406,7 @@ void CresteNode::run() {
   // Store in latest
   {
     std::lock_guard<std::mutex> lk(latest_msg_mutex_);
-    latest_camera_msgs_ = front_images;
+    latest_camera_msgs_ = cam_images;
     latest_cloud_msg_ = front_cloud;
   }
 
@@ -406,7 +420,7 @@ void CresteNode::run() {
 void CresteNode::inference() {
   // Acquire snapshots
   if (!model_) return;
-  static bool kDebug = FLAGS_v > 1;
+  static bool kDebug = FLAGS_v > 0;
 
   std::vector<CompressedImageConstPtr> camera_imgs;
   PointCloud2ConstPtr cloud_msg;
@@ -914,6 +928,7 @@ std::vector<torch::Tensor> CresteNode::ProcessInputs(
       int target_h = cameras_[i]->target_shape[0];
       int target_w = cameras_[i]->target_shape[1];
       cv::resize(bgr, bgr, cv::Size(target_w, target_h));
+
 
       // Save image for debugging
       if (kDebug) {
