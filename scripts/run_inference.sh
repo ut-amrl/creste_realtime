@@ -12,7 +12,7 @@ tmux send-keys -t "$SESSION" "cd $CRESTE_WS" C-m
 
 # Default paths for config and weights
 CONFIG_PATH="$CRESTE_WS/src/creste_realtime/config/frodo/creste_mono.yaml"
-WEIGHTS_PATH="$CRESTE_WS/src/creste_realtime/frodo_ckpts/traversability_model_trace_frozendinov2_nocfs.pt"
+WEIGHTS_PATH="$CRESTE_WS/src/creste_realtime/frodo_ckpts/traversability_model_trace_frozendinov2_cfs.pt"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do

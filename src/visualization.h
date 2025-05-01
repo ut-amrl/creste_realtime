@@ -3,7 +3,6 @@
 
 #include <torch/torch.h>
 
-// VTK Includes (unchanged from your code)
 #include <vtkActor.h>
 #include <vtkCamera.h>
 #include <vtkCellArray.h>

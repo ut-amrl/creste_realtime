@@ -466,7 +466,7 @@ void CresteNode::inference() {
   // if (viz_3d_) {
   //   tensor_map["elevation"] = output.at("elevation_preds");
   //   tensor_map["static_sem"] = output.at("inpainting_sam_preds");
-  //   tensor_map["dynamic_sem"] = output.at("inpainting_sam_dynamic_preds");
+  //   // tensor_map["dynamic_sem"] = output.at("inpainting_sam_dynamic_preds");
   // }
   // tensor_map["depth_preds"] = output.at("depth_preds_metric");
   // tensor_map["traversability"] = output.at("traversability_preds_full");
@@ -486,9 +486,9 @@ void CresteNode::inference() {
   tensor_map["traversability_cost"] = cost_map;
 
   if (viz_3d_) {
-    tensor_map["static_sem"] = tensor_map["static_sem"] * fov_mask_;
-    tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
-    tensor_map["elevation"] = tensor_map["elevation"] * fov_mask_;
+    tensor_map["inpainting_sam_preds"] = tensor_map["inpainting_sam_preds"] * fov_mask_;
+    // tensor_map["dynamic_sem"] = tensor_map["dynamic_sem"] * fov_mask_;
+    tensor_map["elevation_preds"] = tensor_map["elevation_preds"] * fov_mask_;
   }
 
   // print keys in tensor_map
@@ -596,39 +596,40 @@ void CresteNode::inference() {
   // PublishTraversability(tensor_map, "traversability_cost",
   //                       traversability_publisher_);
   // LOG_INFO("Published model predictions.");
-  // if (viz_3d_) {
-  //   // Prepare 3D visualization
-  //   printf("Computing PCA for semantic elevation map...");
-  //   semantic_history_[semantic_history_idx_] =
-  //       tensor_map["static_sem"].index({0});  // [1, F, H, W] -> [F, H, W]
+  if (viz_3d_) {
+    // Prepare 3D visualization
+    printf("Computing PCA for semantic elevation map...");
+    semantic_history_[semantic_history_idx_] =
+        tensor_map["inpainting_sam_preds"].index({0});  // [1, F, H, W] -> [F, H, W]
 
-  //   const auto& sem_rgb_window = computePCA(semantic_history_);  // [B, 3, H,
-  //   W] auto sem_rgb_th =
-  //       sem_rgb_window[semantic_history_idx_].unsqueeze(0);  // [1, 3, H, W]
-  //   sem_rgb_th.masked_fill_(fov_mask_.logical_not().unsqueeze(0),
-  //                           -0.5f);  // Mask out FOV
-  //   printf("Computed PCA for semantic elevation map.\n");
-  //   vector<vector<RGBColor>> elevation_rgb_vec;
+    const auto& sem_rgb_window = computePCA(semantic_history_);  // [B, 3, H, W] 
+    auto sem_rgb_th =
+        sem_rgb_window[semantic_history_idx_].unsqueeze(0);  // [1, 3, H, W]
+    sem_rgb_th.masked_fill_(fov_mask_.logical_not().unsqueeze(0),
+                            -0.5f);  // Mask out FOV
+    printf("Computed PCA for semantic elevation map.\n");
+    vector<vector<RGBColor>> elevation_rgb_vec;
 
-  //   const auto& rel_elevation =
-  //       tensor_map["elevation"].index({0, 0}).unsqueeze(0).unsqueeze(
-  //           0);  // [1, 1, H, W]
-  //   printf("rel_elevation ndims: %ld\n", rel_elevation.dim());
-  //   printf("rel_elevation dims: %ld, %ld, %ld\n", rel_elevation.size(0),
-  //          rel_elevation.size(1), rel_elevation.size(2));
-  //   // TensorToColorMap(rel_elevation, elevation_rgb_vec);
-  //   TensorToColorMap(sem_rgb_th, elevation_rgb_vec);
+    const auto& rel_elevation =
+        tensor_map["elevation_preds"].index({0, 0}).unsqueeze(0).unsqueeze(
+            0);  // [1, 1, H, W]
+    printf("rel_elevation ndims: %ld\n", rel_elevation.dim());
+    printf("rel_elevation dims: %ld, %ld, %ld\n", rel_elevation.size(0),
+           rel_elevation.size(1), rel_elevation.size(2));
+    // TensorToColorMap(rel_elevation, elevation_rgb_vec);
+    TensorToColorMap(sem_rgb_th, elevation_rgb_vec);
 
-  //   vector<vector<float>> elevation_vec;
-  //   // Extract only the elevation tensor from [B, 2, H, W] to [H, W]
-  //   TensorToVec2D(rel_elevation, elevation_vec);
-  //   printf("Converted tensors to vectors.\n");
-  //   // Publish the 3D visualization
-  //   creste::GenerateAndPublishHeightMapImageStructuredGrid(
-  //       elevation_vec, elevation_rgb_vec, semantic_elevation_publisher_);
-  //   semantic_history_idx_ =
-  //       (semantic_history_idx_ + 1) % semantic_history_.sizes()[0];
-  // }
+    vector<vector<float>> elevation_vec;
+    // Extract only the elevation tensor from [B, 2, H, W] to [H, W]
+    TensorToVec2D(rel_elevation, elevation_vec);
+    printf("Converted tensors to vectors.\n");
+    // Publish the 3D visualization
+    // creste::GenerateAndPublishHeightMapImageStructuredGrid(
+    //     elevation_vec, elevation_rgb_vec, semantic_elevation_publisher_);
+    creste::PublishGaussianHeightMap(semantic_elevation_publisher_);
+    // semantic_history_idx_ =
+    //     (semantic_history_idx_ + 1) % semantic_history_.sizes()[0];
+  }
   // // Upsample depth iamge
   // // const int target_height = camera_info_.height;
   // // const int target_width = camera_info_.width;

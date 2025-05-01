@@ -114,7 +114,7 @@ void GenerateAndPublishHeightMapImageStructuredGrid(
   colorArray->SetName("Colors");
   colorArray->SetNumberOfComponents(3);
   colorArray->SetNumberOfTuples(rows * cols);
-
+  LOG_INFO("Setting points and colors...");
   vtkIdType idx = 0;
   for (int i = 0; i < rows; ++i) {
     for (int j = 0; j < cols; ++j) {
@@ -169,7 +169,7 @@ void GenerateAndPublishHeightMapImageStructuredGrid(
   camera->Zoom(2.2);
 
   renderWindow->Render();
-
+  LOG_INFO("RenderWindow rendered!");
   // 4) capture
   vtkSmartPointer<vtkWindowToImageFilter> w2i =
       vtkSmartPointer<vtkWindowToImageFilter>::New();
@@ -178,27 +178,27 @@ void GenerateAndPublishHeightMapImageStructuredGrid(
   w2i->ReadFrontBufferOff();
   w2i->Update();
 
-  vtkImageData* vtkImg = w2i->GetOutput();
-  int dims[3];
-  vtkImg->GetDimensions(dims);
-  int width = dims[0];
-  int height = dims[1];
-  const int channels = 3;
+//   vtkImageData* vtkImg = w2i->GetOutput();
+//   int dims[3];
+//   vtkImg->GetDimensions(dims);
+//   int width = dims[0];
+//   int height = dims[1];
+//   const int channels = 3;
+//   LOG_INFO("Copying VTK image to OpenCV...");
+//   cv::Mat cvImg(height, width, CV_8UC3);
+//   for (int y = 0; y < height; y++) {
+//     unsigned char* vtkRow =
+//         static_cast<unsigned char*>(vtkImg->GetScalarPointer(0, y, 0));
+//     memcpy(cvImg.ptr(y), vtkRow, width * channels);
+//   }
 
-  cv::Mat cvImg(height, width, CV_8UC3);
-  for (int y = 0; y < height; y++) {
-    unsigned char* vtkRow =
-        static_cast<unsigned char*>(vtkImg->GetScalarPointer(0, y, 0));
-    memcpy(cvImg.ptr(y), vtkRow, width * channels);
-  }
-
-  // Convert to ROS image
-  auto rosImgMsg = cv_bridge::CvImage(Header(), "bgr8", cvImg).toImageMsg();
-#ifdef ROS1
-  publisher.publish(*rosImgMsg);
-#else
-  publisher->publish(*rosImgMsg);
-#endif
+//   // Convert to ROS image
+//   auto rosImgMsg = cv_bridge::CvImage(Header(), "bgr8", cvImg).toImageMsg();
+// #ifdef ROS1
+//   publisher.publish(*rosImgMsg);
+// #else
+//   publisher->publish(*rosImgMsg);
+// #endif
   LOG_INFO("StructuredGrid height map image published!");
 }
 
@@ -351,6 +351,8 @@ void PublishGaussianHeightMap(const ImagePublisher& publisher) {
 
   vtkSmartPointer<vtkRenderWindow> rw = vtkSmartPointer<vtkRenderWindow>::New();
   rw->OffScreenRenderingOn();
+  // auto rw = vtkSmartPointer<vtkOSOpenGLRenderWindow>::New();
+  // rw->SetOffScreenRendering(true);
   rw->AddRenderer(ren);
   rw->SetSize(1024, 1024);
 

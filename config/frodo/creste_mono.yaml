@@ -28,7 +28,7 @@ input_topics:
     tf_frames: ["base_link", rear_optical]
     queue_size: 3
 stale_cutoff_ms: 0.0 # Remove all messages older than this time, <=0.0 for no cutoff 
-sync_cutoff_ms: 500.0 # Time to wait for all sensors to be synced
+sync_cutoff_ms: 1000.0 # Time to wait for all sensors to be synced
 
 output_topics:
   - type: depth

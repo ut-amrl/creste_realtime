@@ -20,6 +20,7 @@ TARGET_CRESTE_DIR="/creste_ws/src"
 default_mounts=(
     "$FRODO_WS_DIR/src/creste_realtime:$TARGET_CRESTE_DIR/creste_realtime"
     "$FRODO_WS_DIR/src/amrl_msgs:$TARGET_CRESTE_DIR/amrl_msgs"
+    "/dev/shm:/dev/shm"
 )
 
 RUN_SCRIPT="$TARGET_CRESTE_DIR/creste_realtime/scripts/run_inference.sh"

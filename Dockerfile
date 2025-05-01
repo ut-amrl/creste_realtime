@@ -24,7 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     vim \
     unzip \
-    xvfb \
+    xvfb xauth x11-utils \
+    libvtk9-dev \
+    libgl1-mesa-dri libgl1-mesa-glx libglu1-mesa-dev \
+    mesa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------
@@ -91,17 +94,13 @@ RUN curl -LO https://download.pytorch.org/libtorch/cu121/libtorch-cxx11-abi-shar
 
 ENV Torch_DIR=/opt/libtorch
 ENV LD_LIBRARY_PATH="/opt/libtorch/lib:$LD_LIBRARY_PATH"
-
-# Install Eigen3
-RUN apt-get update && apt-get install -y --no-install-recommends libeigen3-dev && \
-    rm -rf /var/lib/apt/lists/*
+ENV LIBGL_ALWAYS_SOFTWARE=1
 
 # -----------------------------------------------------------
-# 5) Additional environment additions
+# 6) Additional environment additions
 # -----------------------------------------------------------
 # Make sure /usr/local/lib is in LD_LIBRARY_PATH
 RUN echo "export LD_LIBRARY_PATH=/usr/local/libtorch/lib:/usr/local/lib:\$LD_LIBRARY_PATH" >> ~/.bashrc
-# RUN echo "export AMENT_PREFIX_PATH=\$AMENT_PREFIX_PATH:/creste_ws/src/amrl_msgs" >> ~/.bashrc
 
 WORKDIR /creste_ws
 

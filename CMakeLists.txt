@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(creste_realtime)
 
+set(VTK_DIR "/usr/local/vtk-9.3.0/lib/cmake/vtk-9.3" CACHE PATH "" FORCE)
+list(PREPEND CMAKE_PREFIX_PATH "${VTK_DIR}")
+
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
   set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/install" CACHE PATH "Installation Directory" FORCE)
 endif()
@@ -49,6 +52,7 @@ endif()
 # --------------------------------------------------------------------
 # ROS1 vs. ROS2 Setup
 # --------------------------------------------------------------------
+
 if(USE_ROS1)
   # ------------------------------------------
   # ROS1 (rosbuild)
@@ -85,14 +89,15 @@ endif()
 # --------------------------------------------------------------------
 # e.g., Torch, OpenCV, PCL, etc.
 list(APPEND CMAKE_PREFIX_PATH "/usr/local/libtorch")  # Adjust if needed
+
 find_package(Torch REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
-# if you also need VTK or others, do so here:
-# find_package(VTK REQUIRED)
-# include(${VTK_USE_FILE})  # If needed
+find_package(PCL REQUIRED COMPONENTS common io filters octree)
+
+find_package(VTK REQUIRED CONFIG)
+include(${VTK_USE_FILE})  # If needed
 
 # We'll gather them in a variable
 set(non_ros_libs
@@ -103,7 +108,7 @@ set(non_ros_libs
   ${PCL_LIBRARIES}
   ${TORCH_LIBRARIES}
   ${EIGEN3_LIBRARIES}
-  # ${VTK_LIBRARIES}  # if needed
+  ${VTK_LIBRARIES}  # if needed
 )
 
 # Include directories
