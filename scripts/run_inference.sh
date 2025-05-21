@@ -60,5 +60,11 @@ tmux send-keys -t "$SESSION" "colcon build --packages-select amrl_msgs creste_re
 tmux send-keys -t "$SESSION" "source install/setup.bash" C-m
 tmux send-keys -t "$SESSION" "ros2 run creste_realtime creste_node --config_path \"$CONFIG_PATH\" --weights_path \"$WEIGHTS_PATH\"" C-m
 
+tmux send-keys -t "$SESSION" "sleep 1" C-m
+
+# 3) now set use_sim_time to true on the running node
+# tmux send-keys -t "$SESSION" \
+#   "ros2 param set /creste_node use_sim_time true" C-m
+
 # Optionally attach to the tmux session so you can view the output.
 tmux attach -t "$SESSION"

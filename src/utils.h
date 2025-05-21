@@ -111,8 +111,7 @@ cv::Mat TensorToMat(const torch::Tensor& tensor);
 inline torch::Tensor createTrapezoidalFovMask(int H, int W,
                                               float fovTopAngle = 110,
                                               float fovBottomAngle = 110,
-                                              float near = 20,
-                                              float far = 200) {
+                                              float near = 5, float far = 200) {
   // Implementation is the same as before
   torch::Tensor mask_tensor = torch::zeros({H, W}, torch::kBool);
 

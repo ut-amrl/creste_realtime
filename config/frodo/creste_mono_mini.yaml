@@ -20,12 +20,12 @@ input_topics:
     tf_frames: ["base_link", "front_optical"] # src -> target
     queue_size: 4
   - type: image
-    camera_id: "rear_camera"
-    image_topic: "/rear_camera/compressed"
-    info_topic: "/rear_camera/camera_infos"
-    target_shape: [360, 540]
-    ds_factor: [1.0, 0.25]
-    tf_frames: ["base_link", "rear_optical"]
+    camera_id: "front_camera"
+    image_topic: "/front_camera/compressed"
+    info_topic: "/front_camera/camera_infos"
+    target_shape: [288, 512]  # Example: resize input image to this size
+    ds_factor: [0.5, 0.125] # Input downsample factor, Output downsample factor
+    tf_frames: ["base_link", "front_optical"] # src -> target
     queue_size: 4
 stale_cutoff_ms: 0.0 # Remove all messages older than this time, <=0.0 for no cutoff 
 sync_cutoff_ms: 500.0 # Time to wait for all sensors to be synced
@@ -35,8 +35,8 @@ output_topics:
     key: "front_camera/depth_preds_metric"
     topic_name: "/creste/front_camera/depth"
   - type: depth
-    key: "rear_camera/depth_preds_metric"
-    topic_name: "/creste/rear_camera/depth"
+    key: "front_camera/depth_preds_metric"
+    topic_name: "/creste/front_camera/depth"
   - type: traversability
     key: "traversability_cost"
     topic_name: "/creste/bev/traversability"
